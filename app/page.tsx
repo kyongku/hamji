@@ -13,7 +13,6 @@ export default function HomePage() {
   const school = useAppStore((s) => s.school);
   const [hotPosts, setHotPosts] = useState<Post[]>([]);
   const [upcomingAssessments, setUpcomingAssessments] = useState<Assessment[]>([]);
-  const [recentChallenges, setRecentChallenges] = useState<Challenge[]>([]);
   const [streak, setStreak] = useState<UserStreak | null>(null);
 
   useEffect(() => {
@@ -40,15 +39,6 @@ export default function HomePage() {
       .order("due_date", { ascending: true })
       .limit(3)
       .then(({ data }) => { if (data) setUpcomingAssessments(data); });
-
-    // 최근 공부 인증 (5개)
-    supabase
-      .from("challenges")
-      .select("*, user:users(nickname)")
-      .eq("school_id", user.school_id)
-      .order("created_at", { ascending: false })
-      .limit(5)
-      .then(({ data }) => { if (data) setRecentChallenges(data); });
 
     // 내 스트릭
     supabase
@@ -158,24 +148,6 @@ export default function HomePage() {
           <div className="space-y-2">
             {hotPosts.map((post) => (
               <PostCard key={post.id} post={post} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* 최근 공부 인증 */}
-      {recentChallenges.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-bold text-gray-800">공부 인증 피드</h2>
-            <Link href="/challenge" className="text-xs text-primary-light">전체 보기</Link>
-          </div>
-          <div className="space-y-2">
-            {recentChallenges.map((c) => (
-              <div key={c.id} className="card px-4 py-2.5 animate-fade-in">
-                <p className="text-sm text-gray-700">{c.content}</p>
-                <p className="text-xs text-gray-400 mt-1">{c.user?.nickname ?? "익명"}</p>
-              </div>
             ))}
           </div>
         </section>
