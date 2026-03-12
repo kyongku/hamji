@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useAppStore } from "@/lib/store";
@@ -115,7 +115,7 @@ export default function InfoPage() {
 
       {/* 학교 공지 */}
       <div>
-        
+        <a
           href="https://hamji.dge.hs.kr/hamjih/main.do"
           target="_blank"
           rel="noopener noreferrer"
