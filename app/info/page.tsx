@@ -19,17 +19,7 @@ type MealItem = {
   allergens: string;
 };
 
-const INFO_SECTIONS = [
-  {
-    title: "학교 공지",
-    icon: "📢",
-    desc: "함지고등학교 홈페이지",
-    href: "https://hamji.dge.hs.kr/hamjih/main.do",
-  },
-];
-
 const GRADE_FILTERS = ["전체", "1·2학년", "3학년", "전학년"];
-
 const NEIS_KEY = "93659960d8d74136b6d1c85b9026eaa8";
 const ATPT_CODE = "D10";
 const SCHUL_CODE = "7240273";
@@ -37,73 +27,45 @@ const SCHUL_CODE = "7240273";
 function parseMeal(ddishNm: string): MealItem[] {
   return ddishNm.split("<br/>").map((item) => {
     const match = item.match(/^(.+?)\s*(\([\d.]+\))?$/);
-    return {
-      name: match?.[1]?.trim() ?? item.trim(),
-      allergens: match?.[2] ?? "",
-    };
+    return { name: match?.[1]?.trim() ?? item.trim(), allergens: match?.[2] ?? "" };
   }).filter((item) => item.name);
 }
 
 export default function InfoPage() {
   const school = useAppStore((s) => s.school);
   const [events, setEvents] = useState<SchoolEvent[]>([]);
-  const [gradeFilter, setGradeFilter] = useState<string>("전체");
+  const [gradeFilter, setGradeFilter] = useState("전체");
   const [loading, setLoading] = useState(true);
   const [meal, setMeal] = useState<MealItem[] | null>(null);
-  const [mealCalorie, setMealCalorie] = useState<string>("");
+  const [mealCalorie, setMealCalorie] = useState("");
   const [mealLoading, setMealLoading] = useState(true);
   const [mealDate, setMealDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
   useEffect(() => {
     const supabase = createClient();
-    supabase
-      .from("school_events")
-      .select("*")
+    supabase.from("school_events").select("*")
       .gte("event_date", new Date().toISOString().split("T")[0])
       .order("event_date", { ascending: true })
-      .then(({ data }) => {
-        if (data) setEvents(data);
-        setLoading(false);
-      });
+      .then(({ data }) => { if (data) setEvents(data); setLoading(false); });
   }, []);
 
-  useEffect(() => {
-    fetchMeal(mealDate);
-  }, [mealDate]);
+  useEffect(() => { fetchMeal(mealDate); }, [mealDate]);
 
   async function fetchMeal(dateStr: string) {
     setMealLoading(true);
     const ymd = dateStr.replace(/-/g, "");
     try {
-      const res = await fetch(
-        `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${NEIS_KEY}&Type=json&ATPT_OFCDC_SC_CODE=${ATPT_CODE}&SD_SCHUL_CODE=${SCHUL_CODE}&MLSV_YMD=${ymd}`
-      );
+      const res = await fetch(`https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${NEIS_KEY}&Type=json&ATPT_OFCDC_SC_CODE=${ATPT_CODE}&SD_SCHUL_CODE=${SCHUL_CODE}&MLSV_YMD=${ymd}`);
       const json = await res.json();
       const row = json?.mealServiceDietInfo?.[1]?.row?.[0];
-      if (row) {
-        setMeal(parseMeal(row.DDISH_NM));
-        setMealCalorie(row.CAL_INFO);
-      } else {
-        setMeal(null);
-        setMealCalorie("");
-      }
-    } catch {
-      setMeal(null);
-    }
+      if (row) { setMeal(parseMeal(row.DDISH_NM)); setMealCalorie(row.CAL_INFO); }
+      else { setMeal(null); setMealCalorie(""); }
+    } catch { setMeal(null); }
     setMealLoading(false);
   }
 
-  function prevDay() {
-    const d = new Date(mealDate);
-    d.setDate(d.getDate() - 1);
-    setMealDate(format(d, "yyyy-MM-dd"));
-  }
-
-  function nextDay() {
-    const d = new Date(mealDate);
-    d.setDate(d.getDate() + 1);
-    setMealDate(format(d, "yyyy-MM-dd"));
-  }
+  function prevDay() { const d = new Date(mealDate); d.setDate(d.getDate() - 1); setMealDate(format(d, "yyyy-MM-dd")); }
+  function nextDay() { const d = new Date(mealDate); d.setDate(d.getDate() + 1); setMealDate(format(d, "yyyy-MM-dd")); }
 
   const filteredEvents = gradeFilter === "전체"
     ? events
@@ -140,39 +102,32 @@ export default function InfoPage() {
               {meal.map((item, i) => (
                 <li key={i} className="flex items-center justify-between">
                   <span className="text-sm text-gray-700">{item.name}</span>
-                  {item.allergens && (
-                    <span className="text-[10px] text-gray-400">{item.allergens}</span>
-                  )}
+                  {item.allergens && <span className="text-[10px] text-gray-400">{item.allergens}</span>}
                 </li>
               ))}
             </ul>
-            {mealCalorie && (
-              <p className="text-xs text-gray-400 mt-2 text-right">{mealCalorie}</p>
-            )}
+            {mealCalorie && <p className="text-xs text-gray-400 mt-2 text-right">{mealCalorie}</p>}
           </>
         ) : (
           <p className="text-sm text-gray-400 text-center py-3">급식 정보가 없습니다</p>
         )}
       </section>
 
-      {/* 정보 섹션 */}
-      <div className="space-y-3">
-        {INFO_SECTIONS.map((section) => (
-          
-            key={section.title}
-            href={section.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
-          >
-            <span className="text-xl">{section.icon}</span>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-gray-800">{section.title}</h3>
-              <p className="text-xs text-gray-500">{section.desc}</p>
-            </div>
-            <span className="text-gray-300">→</span>
-          </a>
-        ))}
+      {/* 학교 공지 */}
+      <div>
+        
+          href="https://hamji.dge.hs.kr/hamjih/main.do"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+        >
+          <span className="text-xl">📢</span>
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-gray-800">학교 공지</h3>
+            <p className="text-xs text-gray-500">함지고등학교 홈페이지</p>
+          </div>
+          <span className="text-gray-300">{"→"}</span>
+        </a>
       </div>
 
       {/* 학년 필터 + 일정 */}
@@ -180,13 +135,8 @@ export default function InfoPage() {
         <h2 className="text-sm font-bold text-gray-700 mb-3">2026년 주요 일정</h2>
         <div className="flex gap-2 mb-3 flex-wrap">
           {GRADE_FILTERS.map((g) => (
-            <button
-              key={g}
-              onClick={() => setGradeFilter(g)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                gradeFilter === g ? "bg-primary text-white border-primary" : "bg-white text-gray-500 border-gray-200"
-              }`}
-            >
+            <button key={g} onClick={() => setGradeFilter(g)}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${gradeFilter === g ? "bg-primary text-white border-primary" : "bg-white text-gray-500 border-gray-200"}`}>
               {g}
             </button>
           ))}
@@ -208,9 +158,7 @@ export default function InfoPage() {
                     </div>
                     <p className="text-xs text-gray-400">{item.event_date}</p>
                   </div>
-                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                    diff <= 7 ? "bg-red-100 text-red-600" : diff <= 30 ? "bg-orange-100 text-orange-600" : "bg-blue-50 text-blue-600"
-                  }`}>
+                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${diff <= 7 ? "bg-red-100 text-red-600" : diff <= 30 ? "bg-orange-100 text-orange-600" : "bg-blue-50 text-blue-600"}`}>
                     D-{diff}
                   </span>
                 </div>
