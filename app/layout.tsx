@@ -25,14 +25,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko">
-      <head>
-        <Script
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8673007010222998"
-          crossOrigin="anonymous"
-          strategy="afterInteractive"
-        />
-      </head>
       <body className="min-h-dvh">
         <AuthProvider>
           <Header />
@@ -41,6 +33,11 @@ export default function RootLayout({
           </main>
           <BottomNav />
         </AuthProvider>
+        <Script
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8673007010222998"
+          crossOrigin="anonymous"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
