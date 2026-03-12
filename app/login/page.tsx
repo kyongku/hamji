@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 
-export default function LoginPage() {
+function LoginContent() {
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") ?? "/";
@@ -26,7 +26,6 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] text-center -mt-14">
-      {/* 로고 영역 */}
       <div className="mb-10">
         <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
           <span className="text-white text-3xl font-bold">함</span>
@@ -34,8 +33,6 @@ export default function LoginPage() {
         <h1 className="text-3xl font-bold text-primary">함지고</h1>
         <p className="text-gray-500 text-sm mt-2">고등학생을 위한 올인원 플랫폼</p>
       </div>
-
-      {/* 기능 소개 */}
       <div className="w-full max-w-xs space-y-3 mb-10">
         {[
           { icon: "💬", text: "익명 게시판으로 자유롭게 소통" },
@@ -49,8 +46,6 @@ export default function LoginPage() {
           </div>
         ))}
       </div>
-
-      {/* 로그인 버튼 */}
       <button
         onClick={handleGoogleLogin}
         disabled={loading}
@@ -61,7 +56,6 @@ export default function LoginPage() {
           {loading ? "로그인 중..." : "Google 계정으로 시작하기"}
         </span>
       </button>
-
       <p className="text-[11px] text-gray-400 mt-6 max-w-xs leading-relaxed">
         로그인 시 서비스 이용약관 및 개인정보처리방침에 동의하는 것으로 간주됩니다.
       </p>
@@ -77,5 +71,13 @@ function GoogleIcon() {
       <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05"/>
       <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335"/>
     </svg>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[80vh]">로딩 중...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }
