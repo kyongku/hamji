@@ -45,8 +45,3 @@ export default function RootLayout({
     </html>
   );
 }
-```
-
-그리고 `ads.txt` 파일도 필요함. `public/ads.txt` 파일 새로 만들어서 아래 내용 입력:
-```
-google.com, pub-8673007010222998, DIRECT, f08c47fec0942fa0
