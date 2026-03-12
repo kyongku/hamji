@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { useAppStore } from "@/lib/store";
 import type { School, UserStreak } from "@/types";
 import Link from "next/link";
 
-export default function ProfilePage() {
+function ProfileContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isOnboarding = searchParams.get("onboarding") === "true";
@@ -31,22 +31,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const supabase = createClient();
-
-    // 학교 목록 로드
-    supabase
-      .from("schools")
-      .select("*")
-      .order("name")
-      .then(({ data }) => { if (data) setSchools(data); });
-
-    // 스트릭
+    supabase.from("schools").select("*").order("name").then(({ data }) => { if (data) setSchools(data); });
     if (user) {
-      supabase
-        .from("user_streaks")
-        .select("*")
-        .eq("user_id", user.id)
-        .single()
-        .then(({ data }) => { if (data) setStreak(data); });
+      supabase.from("user_streaks").select("*").eq("user_id", user.id).single().then(({ data }) => { if (data) setStreak(data); });
     }
   }, [user]);
 
@@ -62,47 +49,22 @@ export default function ProfilePage() {
   async function handleSave() {
     if (!user || !nickname.trim() || !selectedSchoolId) return;
     setSaving(true);
-
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from("users")
-      .update({
-        nickname: nickname.trim(),
-        school_id: selectedSchoolId,
-        grade,
-        class_number: classNumber || null,
-      })
-      .eq("id", user.id)
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from("users").update({ nickname: nickname.trim(), school_id: selectedSchoolId, grade, class_number: classNumber || null }).eq("id", user.id).select().single();
     if (data) {
       setUser(data);
-      // 학교 정보 갱신
-      const { data: schoolData } = await supabase
-        .from("schools")
-        .select("*")
-        .eq("id", selectedSchoolId)
-        .single();
+      const { data: schoolData } = await supabase.from("schools").select("*").eq("id", selectedSchoolId).single();
       if (schoolData) setSchool(schoolData);
     }
-
     setSaving(false);
-
-    if (isOnboarding) {
-      router.push("/");
-    }
+    if (isOnboarding) router.push("/");
   }
 
   async function handleSchoolRequest() {
     if (!requestSchoolName.trim()) return;
     const supabase = createClient();
-    await supabase.from("school_requests").insert({
-      requester_id: user?.id ?? null,
-      school_name: requestSchoolName.trim(),
-      region: requestRegion.trim(),
-    });
-    alert("학교 개설 요청이 접수되었습니다! 관리자 확인 후 추가됩니다.");
+    await supabase.from("school_requests").insert({ requester_id: user?.id ?? null, school_name: requestSchoolName.trim(), region: requestRegion.trim() });
+    alert("학교 개설 요청이 접수되었습니다!");
     setShowSchoolRequest(false);
     setRequestSchoolName("");
     setRequestRegion("");
@@ -115,7 +77,6 @@ export default function ProfilePage() {
     router.push("/login");
   }
 
-  // 온보딩 모드
   if (isOnboarding || !user?.nickname || !user?.school_id) {
     return (
       <div className="space-y-6">
@@ -124,51 +85,23 @@ export default function ProfilePage() {
           <h2 className="text-xl font-bold text-gray-800">환영합니다!</h2>
           <p className="text-sm text-gray-500 mt-1">프로필을 설정해 주세요</p>
         </div>
-
         <div className="card p-5 space-y-4">
-          {/* 닉네임 */}
           <div>
             <label className="text-xs font-medium text-gray-600 mb-1 block">닉네임</label>
-            <input
-              type="text"
-              placeholder="닉네임 (2~20자)"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              maxLength={20}
-              className="input"
-            />
+            <input type="text" placeholder="닉네임 (2~20자)" value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} className="input" />
           </div>
-
-          {/* 학교 선택 */}
           <div>
             <label className="text-xs font-medium text-gray-600 mb-1 block">학교</label>
-            <select
-              value={selectedSchoolId}
-              onChange={(e) => setSelectedSchoolId(e.target.value)}
-              className="input"
-            >
+            <select value={selectedSchoolId} onChange={(e) => setSelectedSchoolId(e.target.value)} className="input">
               <option value="">학교를 선택하세요</option>
-              {schools.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
+              {schools.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
             </select>
-            <button
-              onClick={() => setShowSchoolRequest(true)}
-              className="text-xs text-primary-light mt-1 underline"
-            >
-              우리 학교가 없어요
-            </button>
+            <button onClick={() => setShowSchoolRequest(true)} className="text-xs text-primary-light mt-1 underline">우리 학교가 없어요</button>
           </div>
-
-          {/* 학년 */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">학년</label>
-              <select
-                value={grade}
-                onChange={(e) => setGrade(Number(e.target.value))}
-                className="input"
-              >
+              <select value={grade} onChange={(e) => setGrade(Number(e.target.value))} className="input">
                 <option value={1}>1학년</option>
                 <option value={2}>2학년</option>
                 <option value={3}>3학년</option>
@@ -176,57 +109,22 @@ export default function ProfilePage() {
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">반 (선택)</label>
-              <input
-                type="number"
-                placeholder="반"
-                value={classNumber}
-                onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")}
-                min={1}
-                max={20}
-                className="input"
-              />
+              <input type="number" placeholder="반" value={classNumber} onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")} min={1} max={20} className="input" />
             </div>
           </div>
-
-          <button
-            onClick={handleSave}
-            disabled={saving || !nickname.trim() || !selectedSchoolId}
-            className="btn-primary w-full py-3 text-base disabled:opacity-50"
-          >
+          <button onClick={handleSave} disabled={saving || !nickname.trim() || !selectedSchoolId} className="btn-primary w-full py-3 text-base disabled:opacity-50">
             {saving ? "저장 중..." : "시작하기"}
           </button>
         </div>
-
-        {/* 학교 개설 요청 모달 */}
         {showSchoolRequest && (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-3">
               <h3 className="text-base font-bold text-gray-800">학교 개설 요청</h3>
-              <input
-                type="text"
-                placeholder="학교 이름"
-                value={requestSchoolName}
-                onChange={(e) => setRequestSchoolName(e.target.value)}
-                className="input"
-              />
-              <input
-                type="text"
-                placeholder="지역 (예: 서울, 경기)"
-                value={requestRegion}
-                onChange={(e) => setRequestRegion(e.target.value)}
-                className="input"
-              />
+              <input type="text" placeholder="학교 이름" value={requestSchoolName} onChange={(e) => setRequestSchoolName(e.target.value)} className="input" />
+              <input type="text" placeholder="지역 (예: 서울, 경기)" value={requestRegion} onChange={(e) => setRequestRegion(e.target.value)} className="input" />
               <div className="flex gap-2">
-                <button onClick={() => setShowSchoolRequest(false)} className="btn-secondary flex-1">
-                  취소
-                </button>
-                <button
-                  onClick={handleSchoolRequest}
-                  disabled={!requestSchoolName.trim()}
-                  className="btn-primary flex-1 disabled:opacity-50"
-                >
-                  요청
-                </button>
+                <button onClick={() => setShowSchoolRequest(false)} className="btn-secondary flex-1">취소</button>
+                <button onClick={handleSchoolRequest} disabled={!requestSchoolName.trim()} className="btn-primary flex-1 disabled:opacity-50">요청</button>
               </div>
             </div>
           </div>
@@ -235,75 +133,30 @@ export default function ProfilePage() {
     );
   }
 
-  // 일반 프로필 뷰
   return (
     <div className="space-y-6">
-      {/* 프로필 카드 */}
       <div className="card p-5 text-center">
         <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
-          <span className="text-2xl font-bold text-primary">
-            {user.nickname?.charAt(0) ?? "?"}
-          </span>
+          <span className="text-2xl font-bold text-primary">{user.nickname?.charAt(0) ?? "?"}</span>
         </div>
         <h2 className="text-lg font-bold text-gray-800">{user.nickname}</h2>
-        <p className="text-sm text-gray-500">
-          {school?.name} · {user.grade}학년
-          {user.class_number ? ` ${user.class_number}반` : ""}
-        </p>
+        <p className="text-sm text-gray-500">{school?.name} · {user.grade}학년{user.class_number ? ` ${user.class_number}반` : ""}</p>
         {streak && streak.current_streak > 0 && (
-          <div className="mt-3 inline-flex items-center gap-1 badge bg-orange-50 text-orange-600">
-            🔥 {streak.current_streak}일 연속 공부 인증
-          </div>
+          <div className="mt-3 inline-flex items-center gap-1 badge bg-orange-50 text-orange-600">🔥 {streak.current_streak}일 연속 공부 인증</div>
         )}
       </div>
-
-      {/* 메뉴 */}
       <div className="space-y-2">
-        <Link href="/challenge" className="card px-4 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-lg">🔥</span>
-            <span className="text-sm font-medium text-gray-700">공부 인증 챌린지</span>
-          </div>
-          <span className="text-gray-300">→</span>
-        </Link>
-        <Link href="/bucket" className="card px-4 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-lg">🎯</span>
-            <span className="text-sm font-medium text-gray-700">버킷리스트</span>
-          </div>
-          <span className="text-gray-300">→</span>
-        </Link>
-        <Link href="/career" className="card px-4 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-lg">🧭</span>
-            <span className="text-sm font-medium text-gray-700">진로 결과 히스토리</span>
-          </div>
-          <span className="text-gray-300">→</span>
-        </Link>
-        <Link href="/assessment" className="card px-4 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-lg">📝</span>
-            <span className="text-sm font-medium text-gray-700">수행평가</span>
-          </div>
-          <span className="text-gray-300">→</span>
-        </Link>
+        <Link href="/challenge" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">🔥</span><span className="text-sm font-medium text-gray-700">공부 인증 챌린지</span></div><span className="text-gray-300">→</span></Link>
+        <Link href="/bucket" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">🎯</span><span className="text-sm font-medium text-gray-700">버킷리스트</span></div><span className="text-gray-300">→</span></Link>
+        <Link href="/career" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">🧭</span><span className="text-sm font-medium text-gray-700">진로 결과 히스토리</span></div><span className="text-gray-300">→</span></Link>
+        <Link href="/assessment" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">📝</span><span className="text-sm font-medium text-gray-700">수행평가</span></div><span className="text-gray-300">→</span></Link>
       </div>
-
-      {/* 프로필 수정 */}
       <details className="card overflow-hidden">
-        <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-600 hover:bg-gray-50">
-          프로필 수정
-        </summary>
+        <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-600 hover:bg-gray-50">프로필 수정</summary>
         <div className="px-4 pb-4 pt-2 border-t border-gray-100 space-y-3">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">닉네임</label>
-            <input
-              type="text"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              maxLength={20}
-              className="input"
-            />
+            <input type="text" value={nickname} onChange={(e) => setNickname(e.target.value)} maxLength={20} className="input" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -316,31 +169,21 @@ export default function ProfilePage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 mb-1 block">반</label>
-              <input
-                type="number"
-                value={classNumber}
-                onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")}
-                className="input"
-              />
+              <input type="number" value={classNumber} onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")} className="input" />
             </div>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={saving || !nickname.trim()}
-            className="btn-primary w-full disabled:opacity-50"
-          >
-            {saving ? "저장 중..." : "저장"}
-          </button>
+          <button onClick={handleSave} disabled={saving || !nickname.trim()} className="btn-primary w-full disabled:opacity-50">{saving ? "저장 중..." : "저장"}</button>
         </div>
       </details>
-
-      {/* 로그아웃 */}
-      <button
-        onClick={handleLogout}
-        className="w-full text-center text-sm text-gray-400 py-3 hover:text-red-400 transition-colors"
-      >
-        로그아웃
-      </button>
+      <button onClick={handleLogout} className="w-full text-center text-sm text-gray-400 py-3 hover:text-red-400 transition-colors">로그아웃</button>
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[80vh]">로딩 중...</div>}>
+      <ProfileContent />
+    </Suspense>
   );
 }
