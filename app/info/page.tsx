@@ -20,10 +20,12 @@ type MealItem = {
 };
 
 const INFO_SECTIONS = [
-  { title: "야간자율학습", icon: "🌙", desc: "야자 시간 및 규칙 안내", content: "학교별 야간자율학습 시간과 규정을 확인하세요." },
-  { title: "장학금 정보", icon: "💰", desc: "교내/교외 장학금 안내", content: "교내 장학금 및 외부 장학재단 정보를 확인하세요." },
-  { title: "학교 공지", icon: "📢", desc: "주요 공지사항 정리", content: "학교의 주요 공지사항을 한눈에 확인하세요." },
-  { title: "입시 일정", icon: "📅", desc: "수능, 수시/정시 일정", content: "주요 입시 일정을 확인하세요." },
+  {
+    title: "학교 공지",
+    icon: "📢",
+    desc: "함지고등학교 홈페이지",
+    href: "https://hamji.dge.hs.kr/hamjih/main.do",
+  },
 ];
 
 const GRADE_FILTERS = ["전체", "1·2학년", "3학년", "전학년"];
@@ -156,19 +158,20 @@ export default function InfoPage() {
       {/* 정보 섹션 */}
       <div className="space-y-3">
         {INFO_SECTIONS.map((section) => (
-          <details key={section.title} className="card overflow-hidden group">
-            <summary className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors">
-              <span className="text-xl">{section.icon}</span>
-              <div className="flex-1">
-                <h3 className="text-sm font-medium text-gray-800">{section.title}</h3>
-                <p className="text-xs text-gray-500">{section.desc}</p>
-              </div>
-              <span className="text-gray-300 group-open:rotate-90 transition-transform">→</span>
-            </summary>
-            <div className="px-4 pb-3 pt-1 border-t border-gray-100">
-              <p className="text-sm text-gray-600 leading-relaxed">{section.content}</p>
+          
+            key={section.title}
+            href={section.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          >
+            <span className="text-xl">{section.icon}</span>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-gray-800">{section.title}</h3>
+              <p className="text-xs text-gray-500">{section.desc}</p>
             </div>
-          </details>
+            <span className="text-gray-300">→</span>
+          </a>
         ))}
       </div>
 
