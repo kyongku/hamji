@@ -74,7 +74,7 @@ export default function BucketPage() {
       user_id: user.id,
     });
     if (!error) {
-      await supabase.rpc("increment_me_too", { bucket_id: bucketId }).catch(() => {
+      await supabase.rpc("increment_me_too", { bucket_id: bucketId }).then(null, () => {
         // RPC 없으면 직접 업데이트
         supabase.from("bucketlist")
           .update({ me_too_count: publicBuckets.find(b => b.id === bucketId)!.me_too_count + 1 })
