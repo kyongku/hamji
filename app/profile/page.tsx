@@ -282,7 +282,7 @@ export default function ProfilePage() {
       <ProfileContent />
     </Suspense>
   );
-}          <p className="text-sm text-gray-500 mt-1">프로필을 설정해 주세요</p>
+}
         </div>
         <div className="card p-5 space-y-4">
           <div>
