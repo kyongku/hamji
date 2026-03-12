@@ -89,7 +89,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="space-y-6">
+    div className="pb-24 space-y-6">
       {/* 인사 + 스트릭 */}
       <section className="card p-4 bg-gradient-to-r from-primary to-primary-light text-white">
         <div className="flex items-center justify-between">
