@@ -41,6 +41,8 @@ export interface Post {
   report_count: number;
   is_hidden: boolean;
   deleted_at: string | null;
+  event_date: string | null;
+  event_title: string | null;
   created_at: string;
   // joined
   user?: Pick<User, "nickname">;
