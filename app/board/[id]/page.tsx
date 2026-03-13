@@ -125,15 +125,15 @@ export default function PostDetailPage() {
     const { error } = await supabase
       .from("posts")
       .update({ deleted_at: new Date().toISOString() })
-      .eq("id", id)
-      .eq("user_id", user!.id); // RLS 보조: 본인 글만
-
+      .eq("id", id);
+  
     if (error) {
       alert("삭제에 실패했습니다: " + error.message);
       return;
     }
     router.push("/board");
   }
+
 
   async function handleDeleteComment(commentId: string) {
     if (!confirm("댓글을 삭제하시겠습니까?")) return;
