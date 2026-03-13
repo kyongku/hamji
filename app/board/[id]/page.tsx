@@ -87,6 +87,8 @@ export default function PostDetailPage() {
     if (!user || !newComment.trim()) return;
     setSubmitting(true);
     const supabase = createClient();
+
+    // 트리거가 comment_count 자동 업데이트하므로 수동 업데이트 제거
     await supabase.from("comments").insert({
       post_id: id,
       user_id: user.id,
@@ -94,17 +96,12 @@ export default function PostDetailPage() {
       content: newComment.trim(),
       is_anonymous: isAnonComment,
     });
-    if (post) {
-      await supabase
-        .from("posts")
-        .update({ comment_count: post.comment_count + 1 })
-        .eq("id", id);
-    }
+
     setNewComment("");
     setReplyTo(null);
     setSubmitting(false);
     loadComments();
-    loadPost();
+    loadPost(); // comment_count 반영
   }
 
   async function handleReport(targetType: "post" | "comment", targetId: string) {
@@ -125,28 +122,32 @@ export default function PostDetailPage() {
   async function handleDelete() {
     if (!confirm("게시글을 삭제하시겠습니까?")) return;
     const supabase = createClient();
-    await supabase
+    const { error } = await supabase
       .from("posts")
       .update({ deleted_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", user!.id); // RLS 보조: 본인 글만
+
+    if (error) {
+      alert("삭제에 실패했습니다: " + error.message);
+      return;
+    }
     router.push("/board");
   }
 
   async function handleDeleteComment(commentId: string) {
     if (!confirm("댓글을 삭제하시겠습니까?")) return;
     const supabase = createClient();
+
+    // 트리거가 comment_count 자동 감소하므로 수동 업데이트 제거
     await supabase
       .from("comments")
       .update({ deleted_at: new Date().toISOString() })
-      .eq("id", commentId);
-    if (post) {
-      await supabase
-        .from("posts")
-        .update({ comment_count: Math.max(0, post.comment_count - 1) })
-        .eq("id", id);
-    }
+      .eq("id", commentId)
+      .eq("user_id", user!.id); // 본인 댓글만
+
     loadComments();
-    loadPost();
+    loadPost(); // comment_count 반영
   }
 
   if (!post) {
@@ -184,6 +185,8 @@ export default function PostDetailPage() {
         <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed mb-4">
           {post.content}
         </p>
+
+        {/* 캘린더 일정 첨부 */}
         {post.event_date && post.event_title && (
           <div className="mt-3 p-3 bg-blue-50 rounded-xl flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -218,6 +221,7 @@ export default function PostDetailPage() {
             </button>
           </div>
         )}
+
         <div className="flex items-center justify-between pt-3 border-t border-gray-100">
           <span className="text-xs text-gray-500">{displayName}</span>
           <div className="flex items-center gap-2">
