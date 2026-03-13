@@ -184,6 +184,40 @@ export default function PostDetailPage() {
         <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed mb-4">
           {post.content}
         </p>
+        {post.event_date && post.event_title && (
+          <div className="mt-3 p-3 bg-blue-50 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">📅</span>
+              <div>
+                <p className="text-xs font-medium text-blue-700">{post.event_title}</p>
+                <p className="text-[11px] text-blue-500">{post.event_date}</p>
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                if (!user) return;
+                const supabase = createClient();
+                await supabase.from("schedules").insert({
+                  user_id: user.id,
+                  title: post.event_title,
+                  category: "etc",
+                  start_time: "00:00:00",
+                  end_time: "00:00:00",
+                  start_date: post.event_date,
+                  end_date: post.event_date,
+                  recurrence: null,
+                  memo: null,
+                  is_public: false,
+                  is_dday: false,
+                });
+                alert("내 캘린더에 추가되었습니다");
+              }}
+              className="text-xs bg-blue-500 text-white px-3 py-1.5 rounded-lg"
+            >
+              + 내 캘린더에 추가
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between pt-3 border-t border-gray-100">
           <span className="text-xs text-gray-500">{displayName}</span>
           <div className="flex items-center gap-2">
