@@ -64,7 +64,6 @@ export default function PostDetailPage() {
   async function toggleLike() {
     if (!user || !post) return;
     const supabase = createClient();
-
     if (liked) {
       await supabase
         .from("likes")
@@ -88,7 +87,6 @@ export default function PostDetailPage() {
     if (!user || !newComment.trim()) return;
     setSubmitting(true);
     const supabase = createClient();
-
     await supabase.from("comments").insert({
       post_id: id,
       user_id: user.id,
@@ -96,15 +94,12 @@ export default function PostDetailPage() {
       content: newComment.trim(),
       is_anonymous: isAnonComment,
     });
-
-    // 댓글 수 증가
     if (post) {
       await supabase
         .from("posts")
         .update({ comment_count: post.comment_count + 1 })
         .eq("id", id);
     }
-
     setNewComment("");
     setReplyTo(null);
     setSubmitting(false);
@@ -116,7 +111,6 @@ export default function PostDetailPage() {
     if (!user) return;
     const reason = prompt("신고 사유를 선택해 주세요 (욕설/도배/부적절/기타):");
     if (!reason) return;
-
     const supabase = createClient();
     await supabase.from("reports").insert({
       reporter_id: user.id,
@@ -138,6 +132,23 @@ export default function PostDetailPage() {
     router.push("/board");
   }
 
+  async function handleDeleteComment(commentId: string) {
+    if (!confirm("댓글을 삭제하시겠습니까?")) return;
+    const supabase = createClient();
+    await supabase
+      .from("comments")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", commentId);
+    if (post) {
+      await supabase
+        .from("posts")
+        .update({ comment_count: Math.max(0, post.comment_count - 1) })
+        .eq("id", id);
+    }
+    loadComments();
+    loadPost();
+  }
+
   if (!post) {
     return (
       <div className="space-y-4 animate-pulse">
@@ -151,7 +162,6 @@ export default function PostDetailPage() {
   const displayName = post.is_anonymous ? "익명" : post.user?.nickname ?? "알 수 없음";
   const isAuthor = user?.id === post.user_id;
 
-  // 댓글을 트리 구조로 변환
   const topComments = comments.filter((c) => !c.parent_id);
   const repliesMap = new Map<string, Comment[]>();
   comments.filter((c) => c.parent_id).forEach((c) => {
@@ -161,7 +171,7 @@ export default function PostDetailPage() {
   });
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4 animate-fade-in pb-24">
       {/* 게시글 */}
       <article className="card p-4">
         <div className="flex items-center justify-between mb-3">
@@ -170,21 +180,17 @@ export default function PostDetailPage() {
           </span>
           <span className="text-xs text-gray-400">{timeAgo(post.created_at)}</span>
         </div>
-
         <h1 className="text-lg font-bold text-gray-900 mb-2">{post.title}</h1>
         <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed mb-4">
           {post.content}
         </p>
-
         <div className="flex items-center justify-between pt-3 border-t border-gray-100">
           <span className="text-xs text-gray-500">{displayName}</span>
           <div className="flex items-center gap-2">
             <button
               onClick={toggleLike}
               className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full transition-colors ${
-                liked
-                  ? "bg-red-50 text-red-500"
-                  : "bg-gray-50 text-gray-500 hover:bg-gray-100"
+                liked ? "bg-red-50 text-red-500" : "bg-gray-50 text-gray-500 hover:bg-gray-100"
               }`}
             >
               {liked ? "❤️" : "🤍"} {post.like_count}
@@ -211,7 +217,6 @@ export default function PostDetailPage() {
         <h2 className="text-sm font-bold text-gray-700 mb-3">
           댓글 {post.comment_count}개
         </h2>
-
         <div className="space-y-2">
           {topComments.map((comment) => (
             <div key={comment.id}>
@@ -220,9 +225,9 @@ export default function PostDetailPage() {
                 isPostAuthor={comment.user_id === post.user_id}
                 onReply={() => setReplyTo(comment.id)}
                 onReport={() => handleReport("comment", comment.id)}
+                onDelete={() => handleDeleteComment(comment.id)}
                 currentUserId={user?.id}
               />
-              {/* 대댓글 */}
               {repliesMap.get(comment.id)?.map((reply) => (
                 <div key={reply.id} className="ml-8">
                   <CommentItem
@@ -230,6 +235,7 @@ export default function PostDetailPage() {
                     isPostAuthor={reply.user_id === post.user_id}
                     onReply={() => setReplyTo(comment.id)}
                     onReport={() => handleReport("comment", reply.id)}
+                    onDelete={() => handleDeleteComment(reply.id)}
                     currentUserId={user?.id}
                     isReply
                   />
@@ -284,6 +290,7 @@ function CommentItem({
   isPostAuthor,
   onReply,
   onReport,
+  onDelete,
   currentUserId,
   isReply = false,
 }: {
@@ -291,6 +298,7 @@ function CommentItem({
   isPostAuthor: boolean;
   onReply: () => void;
   onReport: () => void;
+  onDelete: () => void;
   currentUserId?: string;
   isReply?: boolean;
 }) {
@@ -299,6 +307,8 @@ function CommentItem({
       ? "글쓴이"
       : "익명"
     : comment.user?.nickname ?? "알 수 없음";
+
+  const isOwner = currentUserId === comment.user_id;
 
   return (
     <div className={`card px-3 py-2.5 ${isReply ? "border-l-2 border-primary-light/30" : ""}`}>
@@ -314,10 +324,18 @@ function CommentItem({
       <p className="text-sm text-gray-700 leading-relaxed">{comment.content}</p>
       <div className="flex items-center gap-3 mt-1.5">
         {!isReply && (
-          <button onClick={onReply} className="text-[11px] text-gray-400 hover:text-gray-600">답글</button>
+          <button onClick={onReply} className="text-[11px] text-gray-400 hover:text-gray-600">
+            답글
+          </button>
         )}
-        {currentUserId !== comment.user_id && (
-          <button onClick={onReport} className="text-[11px] text-gray-400 hover:text-red-400">신고</button>
+        {isOwner ? (
+          <button onClick={onDelete} className="text-[11px] text-red-400 hover:text-red-600">
+            삭제
+          </button>
+        ) : (
+          <button onClick={onReport} className="text-[11px] text-gray-400 hover:text-red-400">
+            신고
+          </button>
         )}
       </div>
     </div>
