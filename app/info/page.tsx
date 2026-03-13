@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useAppStore } from "@/lib/store";
@@ -19,16 +19,24 @@ type MealItem = {
   allergens: string;
 };
 
+type NeisSchedule = {
+  date: string;
+  name: string;
+};
+
 const GRADE_FILTERS = ["전체", "1·2학년", "3학년", "전학년"];
 const NEIS_KEY = "93659960d8d74136b6d1c85b9026eaa8";
 const ATPT_CODE = "D10";
 const SCHUL_CODE = "7240273";
 
 function parseMeal(ddishNm: string): MealItem[] {
-  return ddishNm.split("<br/>").map((item) => {
-    const match = item.match(/^(.+?)\s*(\([\d.]+\))?$/);
-    return { name: match?.[1]?.trim() ?? item.trim(), allergens: match?.[2] ?? "" };
-  }).filter((item) => item.name);
+  return ddishNm
+    .split("<br/>")
+    .map((item) => {
+      const match = item.match(/^(.+?)\s*(\([\d.]+\))?$/);
+      return { name: match?.[1]?.trim() ?? item.trim(), allergens: match?.[2] ?? "" };
+    })
+    .filter((item) => item.name);
 }
 
 export default function InfoPage() {
@@ -36,43 +44,113 @@ export default function InfoPage() {
   const [events, setEvents] = useState<SchoolEvent[]>([]);
   const [gradeFilter, setGradeFilter] = useState("전체");
   const [loading, setLoading] = useState(true);
+
+  // 급식
   const [meal, setMeal] = useState<MealItem[] | null>(null);
   const [mealCalorie, setMealCalorie] = useState("");
   const [mealLoading, setMealLoading] = useState(true);
   const [mealDate, setMealDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
+  // NEIS 학사일정
+  const [neisSchedules, setNeisSchedules] = useState<NeisSchedule[]>([]);
+  const [neisMonth, setNeisMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [neisLoading, setNeisLoading] = useState(true);
+
   useEffect(() => {
     const supabase = createClient();
-    supabase.from("school_events").select("*")
+    supabase
+      .from("school_events")
+      .select("*")
       .gte("event_date", new Date().toISOString().split("T")[0])
       .order("event_date", { ascending: true })
-      .then(({ data }) => { if (data) setEvents(data); setLoading(false); });
+      .then(({ data }) => {
+        if (data) setEvents(data);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => { fetchMeal(mealDate); }, [mealDate]);
+  useEffect(() => { fetchNeisSchedule(neisMonth); }, [neisMonth]);
 
   async function fetchMeal(dateStr: string) {
     setMealLoading(true);
     const ymd = dateStr.replace(/-/g, "");
     try {
-      const res = await fetch(`https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${NEIS_KEY}&Type=json&ATPT_OFCDC_SC_CODE=${ATPT_CODE}&SD_SCHUL_CODE=${SCHUL_CODE}&MLSV_YMD=${ymd}`);
+      const res = await fetch(
+        `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${NEIS_KEY}&Type=json&ATPT_OFCDC_SC_CODE=${ATPT_CODE}&SD_SCHUL_CODE=${SCHUL_CODE}&MLSV_YMD=${ymd}`
+      );
       const json = await res.json();
       const row = json?.mealServiceDietInfo?.[1]?.row?.[0];
-      if (row) { setMeal(parseMeal(row.DDISH_NM)); setMealCalorie(row.CAL_INFO); }
-      else { setMeal(null); setMealCalorie(""); }
-    } catch { setMeal(null); }
+      if (row) {
+        setMeal(parseMeal(row.DDISH_NM));
+        setMealCalorie(row.CAL_INFO);
+      } else {
+        setMeal(null);
+        setMealCalorie("");
+      }
+    } catch {
+      setMeal(null);
+    }
     setMealLoading(false);
   }
 
-  function prevDay() { const d = new Date(mealDate); d.setDate(d.getDate() - 1); setMealDate(format(d, "yyyy-MM-dd")); }
-  function nextDay() { const d = new Date(mealDate); d.setDate(d.getDate() + 1); setMealDate(format(d, "yyyy-MM-dd")); }
+  async function fetchNeisSchedule(yearMonth: string) {
+    setNeisLoading(true);
+    const ym = yearMonth.replace(/-/g, "");
+    try {
+      const res = await fetch(
+        `https://open.neis.go.kr/hub/SchoolSchedule?KEY=${NEIS_KEY}&Type=json&ATPT_OFCDC_SC_CODE=${ATPT_CODE}&SD_SCHUL_CODE=${SCHUL_CODE}&AA_YMD=${ym}`
+      );
+      const json = await res.json();
+      const rows = json?.SchoolSchedule?.[1]?.row;
+      if (rows) {
+        const parsed: NeisSchedule[] = rows.map((r: Record<string, string>) => ({
+          date: `${r.AA_YMD.slice(0, 4)}-${r.AA_YMD.slice(4, 6)}-${r.AA_YMD.slice(6, 8)}`,
+          name: r.EVENT_NM,
+        }));
+        setNeisSchedules(parsed);
+      } else {
+        setNeisSchedules([]);
+      }
+    } catch {
+      setNeisSchedules([]);
+    }
+    setNeisLoading(false);
+  }
 
-  const filteredEvents = gradeFilter === "전체"
-    ? events
-    : events.filter((e) => e.target_grade === gradeFilter || e.target_grade === "전학년");
+  function prevDay() {
+    const d = new Date(mealDate);
+    d.setDate(d.getDate() - 1);
+    setMealDate(format(d, "yyyy-MM-dd"));
+  }
+  function nextDay() {
+    const d = new Date(mealDate);
+    d.setDate(d.getDate() + 1);
+    setMealDate(format(d, "yyyy-MM-dd"));
+  }
+  function prevMonth() {
+    const d = new Date(neisMonth + "-01");
+    d.setMonth(d.getMonth() - 1);
+    setNeisMonth(format(d, "yyyy-MM"));
+  }
+  function nextMonth() {
+    const d = new Date(neisMonth + "-01");
+    d.setMonth(d.getMonth() + 1);
+    setNeisMonth(format(d, "yyyy-MM"));
+  }
+
+  const filteredEvents =
+    gradeFilter === "전체"
+      ? events
+      : events.filter(
+          (e) => e.target_grade === gradeFilter || e.target_grade === "전학년"
+        );
 
   function getDday(dateStr: string) {
-    return Math.ceil((new Date(dateStr).getTime() - new Date().setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24));
+    return Math.ceil(
+      (new Date(dateStr).getTime() - new Date().setHours(0, 0, 0, 0)) /
+        (1000 * 60 * 60 * 24)
+    );
   }
 
   return (
@@ -102,14 +180,44 @@ export default function InfoPage() {
               {meal.map((item, i) => (
                 <li key={i} className="flex items-center justify-between">
                   <span className="text-sm text-gray-700">{item.name}</span>
-                  {item.allergens && <span className="text-[10px] text-gray-400">{item.allergens}</span>}
+                  {item.allergens && (
+                    <span className="text-[10px] text-gray-400">{item.allergens}</span>
+                  )}
                 </li>
               ))}
             </ul>
-            {mealCalorie && <p className="text-xs text-gray-400 mt-2 text-right">{mealCalorie}</p>}
+            {mealCalorie && (
+              <p className="text-xs text-gray-400 mt-2 text-right">{mealCalorie}</p>
+            )}
           </>
         ) : (
           <p className="text-sm text-gray-400 text-center py-3">급식 정보가 없습니다</p>
+        )}
+      </section>
+
+      {/* NEIS 학사일정 */}
+      <section className="card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-gray-700">📅 학사일정</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={prevMonth} className="text-gray-400 text-sm px-1">{"<"}</button>
+            <span className="text-xs text-gray-500">{neisMonth}</span>
+            <button onClick={nextMonth} className="text-gray-400 text-sm px-1">{">"}</button>
+          </div>
+        </div>
+        {neisLoading ? (
+          <p className="text-sm text-gray-400 text-center py-3">로딩 중...</p>
+        ) : neisSchedules.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-3">이번 달 학사일정이 없습니다</p>
+        ) : (
+          <ul className="space-y-2">
+            {neisSchedules.map((s, i) => (
+              <li key={i} className="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
+                <span className="text-sm text-gray-700">{s.name}</span>
+                <span className="text-xs text-gray-400">{s.date}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -130,13 +238,20 @@ export default function InfoPage() {
         </a>
       </div>
 
-      {/* 학년 필터 + 일정 */}
+      {/* 주요 일정 D-day */}
       <section>
         <h2 className="text-sm font-bold text-gray-700 mb-3">2026년 주요 일정</h2>
         <div className="flex gap-2 mb-3 flex-wrap">
           {GRADE_FILTERS.map((g) => (
-            <button key={g} onClick={() => setGradeFilter(g)}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${gradeFilter === g ? "bg-primary text-white border-primary" : "bg-white text-gray-500 border-gray-200"}`}>
+            <button
+              key={g}
+              onClick={() => setGradeFilter(g)}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                gradeFilter === g
+                  ? "bg-primary text-white border-primary"
+                  : "bg-white text-gray-500 border-gray-200"
+              }`}
+            >
               {g}
             </button>
           ))}
@@ -150,15 +265,28 @@ export default function InfoPage() {
             {filteredEvents.map((item) => {
               const diff = getDday(item.event_date);
               return (
-                <div key={item.id} className="card px-4 py-2.5 flex items-center justify-between">
+                <div
+                  key={item.id}
+                  className="card px-4 py-2.5 flex items-center justify-between"
+                >
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-medium text-gray-700">{item.title}</p>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{item.target_grade}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                        {item.target_grade}
+                      </span>
                     </div>
                     <p className="text-xs text-gray-400">{item.event_date}</p>
                   </div>
-                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${diff <= 7 ? "bg-red-100 text-red-600" : diff <= 30 ? "bg-orange-100 text-orange-600" : "bg-blue-50 text-blue-600"}`}>
+                  <span
+                    className={`text-xs font-bold px-2 py-1 rounded-full ${
+                      diff <= 7
+                        ? "bg-red-100 text-red-600"
+                        : diff <= 30
+                        ? "bg-orange-100 text-orange-600"
+                        : "bg-blue-50 text-blue-600"
+                    }`}
+                  >
                     D-{diff}
                   </span>
                 </div>
