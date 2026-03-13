@@ -524,8 +524,8 @@ export default function SchedulePage() {
 
       {/* 일정 추가/수정 모달 */}
       {showForm && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end justify-center">
-          <div className="bg-white w-full max-w-lg rounded-t-2xl p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-800">{editingId ? "일정 수정" : "일정 추가"}</h3>
               <button onClick={() => { setShowForm(false); resetForm(); }} className="text-gray-400 text-xl">✕</button>
