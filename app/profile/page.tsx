@@ -24,6 +24,7 @@ function ProfileContent() {
   const [realName, setRealName] = useState((user as any)?.real_name ?? "");
   const [phone, setPhone] = useState((user as any)?.phone ?? "");
   const [nicknameError, setNicknameError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [selectedSchoolId, setSelectedSchoolId] = useState(user?.school_id ?? "");
   const [grade, setGrade] = useState<number>(user?.grade ?? 1);
   const [classNumber, setClassNumber] = useState<number | "">(user?.class_number ?? "");
@@ -31,6 +32,9 @@ function ProfileContent() {
   const [showSchoolRequest, setShowSchoolRequest] = useState(false);
   const [requestSchoolName, setRequestSchoolName] = useState("");
   const [requestRegion, setRequestRegion] = useState("");
+
+  // 실명/전화번호가 이미 저장된 상태인지 판단
+  const isIdentityLocked = !!(user as any)?.real_name && !!(user as any)?.phone;
 
   useEffect(() => {
     const supabase = createClient();
@@ -60,18 +64,60 @@ function ProfileContent() {
     setNicknameError(data ? "이미 사용 중인 닉네임입니다" : "");
   }
 
+  async function checkPhone(value: string) {
+    setPhone(value);
+    setPhoneError("");
+    if (!value.trim()) return;
+    if ((user as any)?.phone === value.trim()) return; // 기존 번호와 동일
+    const supabase = createClient();
+    const { data } = await supabase.from("users").select("id").eq("phone", value.trim()).single();
+    if (data) setPhoneError("이미 가입된 전화번호입니다");
+  }
+
   async function handleSave() {
     if (!user || !nickname.trim() || !selectedSchoolId) return;
     if (!realName.trim()) { alert("이름을 입력해 주세요"); return; }
     if (!phone.trim()) { alert("전화번호를 입력해 주세요"); return; }
-    if (nicknameError) return;
+    if (nicknameError || phoneError) return;
+
+    // 최초 실명/전화번호 저장 시 경고
+    if (!isIdentityLocked) {
+      const confirmed = confirm(
+        "⚠️ 주의\n\n한번 저장된 이름과 전화번호는 수정이 불가합니다.\n\n이름: " + realName.trim() + "\n전화번호: " + phone.trim() + "\n\n저장하시겠습니까?"
+      );
+      if (!confirmed) return;
+    }
+
     setSaving(true);
     const supabase = createClient();
+
+    const updatePayload: Record<string, unknown> = {
+      nickname: nickname.trim(),
+      school_id: selectedSchoolId,
+      grade,
+      class_number: classNumber || null,
+    };
+
+    // 잠금 안 된 경우에만 실명/전화번호 업데이트
+    if (!isIdentityLocked) {
+      updatePayload.real_name = realName.trim();
+      updatePayload.phone = phone.trim();
+    }
+
     const { data, error } = await supabase
       .from("users")
-      .update({ nickname: nickname.trim(), real_name: realName.trim(), phone: phone.trim(), school_id: selectedSchoolId, grade, class_number: classNumber || null })
-      .eq("id", user.id).select().single();
-    if (error?.code === "23505") { setNicknameError("이미 사용 중인 닉네임입니다"); setSaving(false); return; }
+      .update(updatePayload)
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (error?.code === "23505") {
+      if (error.message.includes("nickname")) setNicknameError("이미 사용 중인 닉네임입니다");
+      if (error.message.includes("phone")) setPhoneError("이미 가입된 전화번호입니다");
+      setSaving(false);
+      return;
+    }
+
     if (data) {
       setUser(data);
       const { data: schoolData } = await supabase.from("schools").select("*").eq("id", selectedSchoolId).single();
@@ -84,7 +130,11 @@ function ProfileContent() {
   async function handleSchoolRequest() {
     if (!requestSchoolName.trim()) return;
     const supabase = createClient();
-    await supabase.from("school_requests").insert({ requester_id: user?.id ?? null, school_name: requestSchoolName.trim(), region: requestRegion.trim() });
+    await supabase.from("school_requests").insert({
+      requester_id: user?.id ?? null,
+      school_name: requestSchoolName.trim(),
+      region: requestRegion.trim(),
+    });
     alert("학교 개설 요청이 접수되었습니다!");
     setShowSchoolRequest(false);
     setRequestSchoolName("");
@@ -98,6 +148,7 @@ function ProfileContent() {
     router.push("/login");
   }
 
+  // ── 온보딩 / 최초 프로필 설정 ──
   if (isOnboarding || !user?.nickname || !user?.school_id) {
     return (
       <div className="pb-24 space-y-6">
@@ -113,13 +164,25 @@ function ProfileContent() {
             {nicknameError && <p className="text-xs text-red-500 mt-1">{nicknameError}</p>}
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">이름 (실명)</label>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">
+              이름 (실명)
+              <span className="ml-1 text-red-400 font-normal">저장 후 수정 불가</span>
+            </label>
             <input type="text" placeholder="홍길동" value={realName} onChange={(e) => setRealName(e.target.value)} maxLength={20} className="input" />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">전화번호</label>
-            <input type="tel" placeholder="010-0000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={13} className="input" />
-            <p className="text-[11px] text-gray-400 mt-1">익명 게시물 관리 목적으로만 사용되며 외부에 공개되지 않습니다</p>
+            <label className="text-xs font-medium text-gray-600 mb-1 block">
+              전화번호
+              <span className="ml-1 text-red-400 font-normal">저장 후 수정 불가</span>
+            </label>
+            <input type="tel" placeholder="010-0000-0000" value={phone} onChange={(e) => checkPhone(e.target.value)} maxLength={13} className="input" />
+            {phoneError
+              ? <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+              : <p className="text-[11px] text-gray-400 mt-1">익명 게시물 관리 목적으로만 사용되며 외부에 공개되지 않습니다</p>
+            }
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="text-[11px] text-amber-700">⚠️ 한번 저장된 이름과 전화번호는 수정이 불가합니다. 정확히 입력해 주세요.</p>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-600 mb-1 block">학교</label>
@@ -143,10 +206,15 @@ function ProfileContent() {
               <input type="number" placeholder="반" value={classNumber} onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")} min={1} max={20} className="input" />
             </div>
           </div>
-          <button onClick={handleSave} disabled={saving || !nickname.trim() || !!nicknameError || !realName.trim() || !phone.trim() || !selectedSchoolId} className="btn-primary w-full py-3 text-base disabled:opacity-50">
+          <button
+            onClick={handleSave}
+            disabled={saving || !nickname.trim() || !!nicknameError || !!phoneError || !realName.trim() || !phone.trim() || !selectedSchoolId}
+            className="btn-primary w-full py-3 text-base disabled:opacity-50"
+          >
             {saving ? "저장 중..." : "시작하기"}
           </button>
         </div>
+
         {showSchoolRequest && (
           <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-3">
@@ -164,6 +232,7 @@ function ProfileContent() {
     );
   }
 
+  // ── 일반 프로필 뷰 ──
   return (
     <div className="pb-24 space-y-6">
       <div className="card p-5 text-center">
@@ -176,12 +245,26 @@ function ProfileContent() {
           <div className="mt-3 inline-flex items-center gap-1 badge bg-orange-50 text-orange-600">🔥 {streak.current_streak}일 연속 공부 인증</div>
         )}
       </div>
+
       <div className="space-y-2">
-        <Link href="/challenge" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">🔥</span><span className="text-sm font-medium text-gray-700">공부 인증 챌린지</span></div><span className="text-gray-300">→</span></Link>
-        <Link href="/bucket" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">🎯</span><span className="text-sm font-medium text-gray-700">버킷리스트</span></div><span className="text-gray-300">→</span></Link>
-        <Link href="/career" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">🧭</span><span className="text-sm font-medium text-gray-700">진로 결과 히스토리</span></div><span className="text-gray-300">→</span></Link>
-        <Link href="/assessment" className="card px-4 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><span className="text-lg">📝</span><span className="text-sm font-medium text-gray-700">수행평가</span></div><span className="text-gray-300">→</span></Link>
+        <Link href="/challenge" className="card px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3"><span className="text-lg">🔥</span><span className="text-sm font-medium text-gray-700">공부 인증 챌린지</span></div>
+          <span className="text-gray-300">→</span>
+        </Link>
+        <Link href="/bucket" className="card px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3"><span className="text-lg">🎯</span><span className="text-sm font-medium text-gray-700">버킷리스트</span></div>
+          <span className="text-gray-300">→</span>
+        </Link>
+        <Link href="/career" className="card px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3"><span className="text-lg">🧭</span><span className="text-sm font-medium text-gray-700">진로 결과 히스토리</span></div>
+          <span className="text-gray-300">→</span>
+        </Link>
+        <Link href="/assessment" className="card px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3"><span className="text-lg">📝</span><span className="text-sm font-medium text-gray-700">수행평가</span></div>
+          <span className="text-gray-300">→</span>
+        </Link>
       </div>
+
       <details className="card overflow-hidden">
         <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-600 hover:bg-gray-50">프로필 수정</summary>
         <div className="px-4 pb-4 pt-2 border-t border-gray-100 space-y-3">
@@ -190,14 +273,43 @@ function ProfileContent() {
             <input type="text" value={nickname} onChange={(e) => checkNickname(e.target.value)} maxLength={20} className="input" />
             {nicknameError && <p className="text-xs text-red-500 mt-1">{nicknameError}</p>}
           </div>
+
+          {/* 실명 - 잠금 여부에 따라 다르게 표시 */}
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">이름 (실명)</label>
-            <input type="text" value={realName} onChange={(e) => setRealName(e.target.value)} maxLength={20} className="input" />
+            <label className="text-xs text-gray-500 mb-1 flex items-center gap-1 block">
+              이름 (실명)
+              {isIdentityLocked && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">🔒 수정 불가</span>}
+            </label>
+            <input
+              type="text"
+              value={realName}
+              readOnly={isIdentityLocked}
+              onChange={(e) => !isIdentityLocked && setRealName(e.target.value)}
+              maxLength={20}
+              className={`input ${isIdentityLocked ? "bg-gray-50 text-gray-400 cursor-not-allowed" : ""}`}
+            />
           </div>
+
+          {/* 전화번호 - 잠금 여부에 따라 다르게 표시 */}
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">전화번호</label>
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={13} className="input" />
+            <label className="text-xs text-gray-500 mb-1 flex items-center gap-1 block">
+              전화번호
+              {isIdentityLocked && <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">🔒 수정 불가</span>}
+            </label>
+            <input
+              type="tel"
+              value={phone}
+              readOnly={isIdentityLocked}
+              onChange={(e) => !isIdentityLocked && checkPhone(e.target.value)}
+              maxLength={13}
+              className={`input ${isIdentityLocked ? "bg-gray-50 text-gray-400 cursor-not-allowed" : ""}`}
+            />
+            {phoneError && <p className="text-xs text-red-500 mt-1">{phoneError}</p>}
+            {!isIdentityLocked && (
+              <p className="text-[11px] text-amber-600 mt-1">⚠️ 한번 저장된 이름과 전화번호는 수정이 불가합니다</p>
+            )}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-500 mb-1 block">학년</label>
@@ -212,10 +324,19 @@ function ProfileContent() {
               <input type="number" value={classNumber} onChange={(e) => setClassNumber(e.target.value ? Number(e.target.value) : "")} className="input" />
             </div>
           </div>
-          <button onClick={handleSave} disabled={saving || !nickname.trim() || !!nicknameError} className="btn-primary w-full disabled:opacity-50">{saving ? "저장 중..." : "저장"}</button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !nickname.trim() || !!nicknameError || !!phoneError}
+            className="btn-primary w-full disabled:opacity-50"
+          >
+            {saving ? "저장 중..." : "저장"}
+          </button>
         </div>
       </details>
-      <button onClick={handleLogout} className="w-full text-center text-sm text-gray-400 py-3 hover:text-red-400 transition-colors">로그아웃</button>
+
+      <button onClick={handleLogout} className="w-full text-center text-sm text-gray-400 py-3 hover:text-red-400 transition-colors">
+        로그아웃
+      </button>
     </div>
   );
 }
