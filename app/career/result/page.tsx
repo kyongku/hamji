@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { useAppStore } from "@/lib/store";
 import type { CareerResult } from "@/types";
+
+const TYPE_LABELS: Record<string, string> = {
+  R: "현실형", I: "탐구형", A: "예술형", S: "사회형", E: "기업형", C: "관습형",
+};
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
 
 export default function CareerResultPage() {
   const router = useRouter();
@@ -12,6 +21,13 @@ export default function CareerResultPage() {
   const [latestResult, setLatestResult] = useState<CareerResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
+
+  // 채팅
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [remainingCount, setRemainingCount] = useState<number | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -27,43 +43,119 @@ export default function CareerResultPage() {
         setLatestResult(data);
         setLoading(false);
       });
+
+    // 오늘 남은 횟수 조회
+    const today = new Date().toISOString().split("T")[0];
+    supabase
+      .from("ai_usage")
+      .select("count")
+      .eq("user_id", user.id)
+      .eq("date", today)
+      .single()
+      .then(({ data }) => {
+        setRemainingCount(2 - (data?.count ?? 0));
+      });
   }, [user]);
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
   async function requestAiRecommendation() {
     if (!user || !latestResult) return;
     setAiLoading(true);
 
-    // TODO: Gemini Flash API 호출
-    // 현재는 mock 데이터 사용
-    const mockRecommendation = {
-      departments: [
-        { name: "컴퓨터공학과", description: "소프트웨어 개발, AI, 데이터 분석 등을 배움", universities: ["서울대", "KAIST", "성균관대"] },
-        { name: "산업공학과", description: "시스템 최적화, 경영공학, 데이터 사이언스", universities: ["KAIST", "포항공대", "한양대"] },
-        { name: "경영학과", description: "기업 경영, 마케팅, 재무, 조직 관리", universities: ["고려대", "연세대", "서강대"] },
-      ],
-      interview_questions: [
-        "지원 학과를 선택한 계기와 해당 분야에 대한 관심을 보여주는 경험이 있나요?",
-        "고등학교 생활 중 가장 도전적이었던 경험과 그것을 통해 배운 점은 무엇인가요?",
-        "팀 프로젝트에서 갈등이 생겼을 때 어떻게 해결했나요?",
-        "최근 읽은 책 중 전공과 관련된 책이 있다면 소개해 주세요.",
-        "10년 후 자신의 모습을 그려본다면 어떤 모습인가요?",
-      ],
-      activities: [
-        "교내 코딩 동아리 활동 및 프로젝트 개발",
-        "사회 문제 해결을 위한 캠페인 기획 및 실행",
-        "관련 분야 도서 독서 및 독서록 작성",
-        "멘토링 봉사활동 (또래 학습 지도)",
-      ],
-    };
+    try {
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          careerResult: latestResult,
+          messages: [
+            {
+              role: "user",
+              content: `내 적성 유형(${latestResult.test_result.top_types?.map((t) => TYPE_LABELS[t] ?? t).join(", ")})에 맞는 추천 학과 3개와 각 학과 설명, 추천 대학, 예상 면접 질문 5개, 생기부 활동 추천 4개를 알려줘. JSON 형식으로 답변해줘: {"departments":[{"name":"","description":"","universities":[]}],"interview_questions":[],"activities":[]}`,
+            },
+          ],
+        }),
+      });
 
-    const supabase = createClient();
-    await supabase
-      .from("career_results")
-      .update({ ai_recommendation: mockRecommendation })
-      .eq("id", latestResult.id);
+      const json = await res.json();
 
-    setLatestResult({ ...latestResult, ai_recommendation: mockRecommendation });
+      if (!res.ok) {
+        alert(json.error);
+        setAiLoading(false);
+        return;
+      }
+
+      setRemainingCount(json.remainingCount);
+
+      // JSON 파싱 시도
+      let recommendation;
+      try {
+        const cleaned = json.message.replace(/```json|```/g, "").trim();
+        recommendation = JSON.parse(cleaned);
+      } catch {
+        // 파싱 실패 시 기본 구조
+        recommendation = {
+          departments: [{ name: "파싱 오류", description: json.message, universities: [] }],
+          interview_questions: [],
+          activities: [],
+        };
+      }
+
+      const supabase = createClient();
+      await supabase
+        .from("career_results")
+        .update({ ai_recommendation: recommendation })
+        .eq("id", latestResult.id);
+
+      setLatestResult({ ...latestResult, ai_recommendation: recommendation });
+    } catch {
+      alert("AI 추천 요청 중 오류가 발생했습니다");
+    }
+
     setAiLoading(false);
+  }
+
+  async function sendChat() {
+    if (!chatInput.trim() || chatLoading || !latestResult) return;
+    if (remainingCount !== null && remainingCount <= 0) {
+      alert("오늘 AI 사용 횟수를 모두 소진했습니다. 내일 다시 이용해 주세요.");
+      return;
+    }
+
+    const userMsg: ChatMessage = { role: "user", content: chatInput.trim() };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          careerResult: latestResult,
+          messages: newMessages,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setChatMessages([...newMessages, { role: "assistant", content: json.error }]);
+        setChatLoading(false);
+        return;
+      }
+
+      setRemainingCount(json.remainingCount);
+      setChatMessages([...newMessages, { role: "assistant", content: json.message }]);
+    } catch {
+      setChatMessages([...newMessages, { role: "assistant", content: "오류가 발생했습니다. 다시 시도해 주세요." }]);
+    }
+
+    setChatLoading(false);
   }
 
   if (loading) {
@@ -83,33 +175,33 @@ export default function CareerResultPage() {
   }
 
   const rec = latestResult.ai_recommendation;
-  const TYPE_LABELS: Record<string, string> = {
-    R: "현실형", I: "탐구형", A: "예술형", S: "사회형", E: "기업형", C: "관습형",
-  };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-24">
       {/* 내 유형 */}
       <div className="card p-4 bg-gradient-to-r from-primary to-primary-light text-white">
         <p className="text-xs opacity-80 mb-1">내 적성 유형</p>
         <div className="flex gap-2">
           {latestResult.test_result.top_types?.map((t) => (
-            <span key={t} className="text-lg font-bold">
-              {TYPE_LABELS[t] ?? t}
-            </span>
+            <span key={t} className="text-lg font-bold">{TYPE_LABELS[t] ?? t}</span>
           ))}
         </div>
       </div>
 
       {/* AI 추천 요청 */}
       {!rec && (
-        <button
-          onClick={requestAiRecommendation}
-          disabled={aiLoading}
-          className="btn-primary w-full py-3 text-base"
-        >
-          {aiLoading ? "AI 분석 중..." : "AI 학과 추천 받기 (1회 소모)"}
-        </button>
+        <div className="space-y-2">
+          {remainingCount !== null && (
+            <p className="text-xs text-center text-gray-400">오늘 남은 AI 사용 횟수: {remainingCount}회</p>
+          )}
+          <button
+            onClick={requestAiRecommendation}
+            disabled={aiLoading || remainingCount === 0}
+            className="btn-primary w-full py-3 text-base disabled:opacity-50"
+          >
+            {aiLoading ? "AI 분석 중..." : "AI 학과 추천 받기 (1회 소모)"}
+          </button>
+        </div>
       )}
 
       {/* 추천 학과 */}
@@ -158,6 +250,69 @@ export default function CareerResultPage() {
                 <p className="text-sm text-gray-700">{a}</p>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* AI 채팅 */}
+      {rec && (
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-gray-700">AI에게 더 물어보기</h2>
+            {remainingCount !== null && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${remainingCount > 0 ? "bg-green-50 text-green-600" : "bg-red-50 text-red-400"}`}>
+                오늘 {remainingCount}회 남음
+              </span>
+            )}
+          </div>
+
+          {/* 채팅 메시지 */}
+          <div className="card p-3 space-y-3 max-h-[300px] overflow-y-auto mb-3">
+            {chatMessages.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-4">
+                결과에 대해 궁금한 점을 물어보세요
+              </p>
+            ) : (
+              chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-primary text-white rounded-br-sm"
+                      : "bg-gray-100 text-gray-700 rounded-bl-sm"
+                  }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))
+            )}
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-gray-100 px-3 py-2 rounded-2xl rounded-bl-sm">
+                  <span className="text-xs text-gray-400">답변 생성 중...</span>
+                </div>
+              </div>
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* 채팅 입력 */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder={remainingCount === 0 ? "오늘 사용 횟수를 모두 소진했습니다" : "질문을 입력하세요"}
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendChat()}
+              disabled={remainingCount === 0 || chatLoading}
+              className="input flex-1 disabled:opacity-50"
+            />
+            <button
+              onClick={sendChat}
+              disabled={!chatInput.trim() || chatLoading || remainingCount === 0}
+              className="btn-primary px-4 disabled:opacity-50"
+            >
+              전송
+            </button>
           </div>
         </section>
       )}
