@@ -18,9 +18,11 @@ interface ChatMessage {
 export default function CareerResultPage() {
   const router = useRouter();
   const user = useAppStore((s) => s.user);
-  const [latestResult, setLatestResult] = useState<CareerResult | null>(null);
+  const [results, setResults] = useState<CareerResult[]>([]);
+  const [selectedResult, setSelectedResult] = useState<CareerResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // 채팅
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -31,38 +33,66 @@ export default function CareerResultPage() {
 
   useEffect(() => {
     if (!user) return;
-    const supabase = createClient();
-    supabase
-      .from("career_results")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single()
-      .then(({ data }) => {
-        setLatestResult(data);
-        setLoading(false);
-      });
-
-    // 오늘 남은 횟수 조회
-    const today = new Date().toISOString().split("T")[0];
-    supabase
-      .from("ai_usage")
-      .select("count")
-      .eq("user_id", user.id)
-      .eq("date", today)
-      .single()
-      .then(({ data }) => {
-        setRemainingCount(2 - (data?.count ?? 0));
-      });
+    loadResults();
+    loadRemainingCount();
   }, [user]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
+  async function loadResults() {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("career_results")
+      .select("*")
+      .eq("user_id", user!.id)
+      .order("created_at", { ascending: false });
+
+    if (data && data.length > 0) {
+      setResults(data);
+      setSelectedResult(data[0]); // 최신 결과 기본 선택
+    }
+    setLoading(false);
+  }
+
+  async function loadRemainingCount() {
+    const supabase = createClient();
+    const today = new Date().toISOString().split("T")[0];
+    const { data } = await supabase
+      .from("ai_usage")
+      .select("count")
+      .eq("user_id", user!.id)
+      .eq("date", today)
+      .single();
+    setRemainingCount(2 - (data?.count ?? 0));
+  }
+
+  async function handleDelete(resultId: string) {
+    if (!confirm("이 결과를 삭제하시겠습니까?")) return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("career_results")
+      .delete()
+      .eq("id", resultId);
+
+    if (error) {
+      alert("삭제 실패: " + error.message);
+      return;
+    }
+
+    const newResults = results.filter((r) => r.id !== resultId);
+    setResults(newResults);
+
+    // 삭제한 게 현재 선택된 거면 최신으로 교체
+    if (selectedResult?.id === resultId) {
+      setSelectedResult(newResults[0] ?? null);
+      setChatMessages([]);
+    }
+  }
+
   async function requestAiRecommendation() {
-    if (!user || !latestResult) return;
+    if (!user || !selectedResult) return;
     setAiLoading(true);
 
     try {
@@ -70,33 +100,26 @@ export default function CareerResultPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          careerResult: latestResult,
+          careerResult: selectedResult,
           messages: [
             {
               role: "user",
-              content: `내 적성 유형(${latestResult.test_result.top_types?.map((t) => TYPE_LABELS[t] ?? t).join(", ")})에 맞는 추천 학과 3개와 각 학과 설명, 추천 대학, 예상 면접 질문 5개, 생기부 활동 추천 4개를 알려줘. JSON 형식으로 답변해줘: {"departments":[{"name":"","description":"","universities":[]}],"interview_questions":[],"activities":[]}`,
+              content: `내 적성 유형(${selectedResult.test_result.top_types?.map((t) => TYPE_LABELS[t] ?? t).join(", ")})에 맞는 추천 학과 3개와 각 학과 설명, 추천 대학, 예상 면접 질문 5개, 생기부 활동 추천 4개를 알려줘. JSON 형식으로 답변해줘: {"departments":[{"name":"","description":"","universities":[]}],"interview_questions":[],"activities":[]}`,
             },
           ],
         }),
       });
 
       const json = await res.json();
-
-      if (!res.ok) {
-        alert(json.error);
-        setAiLoading(false);
-        return;
-      }
+      if (!res.ok) { alert(json.error); setAiLoading(false); return; }
 
       setRemainingCount(json.remainingCount);
 
-      // JSON 파싱 시도
       let recommendation;
       try {
         const cleaned = json.message.replace(/```json|```/g, "").trim();
         recommendation = JSON.parse(cleaned);
       } catch {
-        // 파싱 실패 시 기본 구조
         recommendation = {
           departments: [{ name: "파싱 오류", description: json.message, universities: [] }],
           interview_questions: [],
@@ -108,9 +131,11 @@ export default function CareerResultPage() {
       await supabase
         .from("career_results")
         .update({ ai_recommendation: recommendation })
-        .eq("id", latestResult.id);
+        .eq("id", selectedResult.id);
 
-      setLatestResult({ ...latestResult, ai_recommendation: recommendation });
+      const updated = { ...selectedResult, ai_recommendation: recommendation };
+      setSelectedResult(updated);
+      setResults(results.map((r) => r.id === selectedResult.id ? updated : r));
     } catch {
       alert("AI 추천 요청 중 오류가 발생했습니다");
     }
@@ -119,7 +144,7 @@ export default function CareerResultPage() {
   }
 
   async function sendChat() {
-    if (!chatInput.trim() || chatLoading || !latestResult) return;
+    if (!chatInput.trim() || chatLoading || !selectedResult) return;
     if (remainingCount !== null && remainingCount <= 0) {
       alert("오늘 AI 사용 횟수를 모두 소진했습니다. 내일 다시 이용해 주세요.");
       return;
@@ -136,13 +161,12 @@ export default function CareerResultPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          careerResult: latestResult,
+          careerResult: selectedResult,
           messages: newMessages,
         }),
       });
 
       const json = await res.json();
-
       if (!res.ok) {
         setChatMessages([...newMessages, { role: "assistant", content: json.error }]);
         setChatLoading(false);
@@ -162,7 +186,7 @@ export default function CareerResultPage() {
     return <div className="text-center py-12 text-gray-400">로딩 중...</div>;
   }
 
-  if (!latestResult) {
+  if (!selectedResult) {
     return (
       <div className="text-center py-12">
         <p className="text-3xl mb-3">📋</p>
@@ -174,17 +198,72 @@ export default function CareerResultPage() {
     );
   }
 
-  const rec = latestResult.ai_recommendation;
+  const rec = selectedResult.ai_recommendation;
 
   return (
     <div className="space-y-6 animate-fade-in pb-24">
+
+      {/* 이전 결과 히스토리 */}
+      {results.length > 1 && (
+        <div>
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="text-xs text-primary flex items-center gap-1"
+          >
+            {showHistory ? "▲" : "▼"} 이전 결과 보기 ({results.length}개)
+          </button>
+          {showHistory && (
+            <div className="mt-2 space-y-2">
+              {results.map((r) => (
+                <div
+                  key={r.id}
+                  className={`card px-3 py-2 flex items-center justify-between ${
+                    selectedResult.id === r.id ? "border-primary border" : ""
+                  }`}
+                >
+                  <button
+                    onClick={() => {
+                      setSelectedResult(r);
+                      setChatMessages([]);
+                      setShowHistory(false);
+                    }}
+                    className="text-left flex-1"
+                  >
+                    <p className="text-xs font-medium text-gray-700">
+                      {r.test_result.top_types?.map((t) => TYPE_LABELS[t] ?? t).join(", ")}
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      {new Date(r.created_at).toLocaleDateString("ko-KR")}
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => handleDelete(r.id)}
+                    className="text-xs text-red-400 px-2"
+                  >
+                    삭제
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 내 유형 */}
       <div className="card p-4 bg-gradient-to-r from-primary to-primary-light text-white">
         <p className="text-xs opacity-80 mb-1">내 적성 유형</p>
-        <div className="flex gap-2">
-          {latestResult.test_result.top_types?.map((t) => (
-            <span key={t} className="text-lg font-bold">{TYPE_LABELS[t] ?? t}</span>
-          ))}
+        <div className="flex items-center justify-between">
+          <div className="flex gap-2">
+            {selectedResult.test_result.top_types?.map((t) => (
+              <span key={t} className="text-lg font-bold">{TYPE_LABELS[t] ?? t}</span>
+            ))}
+          </div>
+          <button
+            onClick={() => handleDelete(selectedResult.id)}
+            className="text-xs text-white/60 hover:text-white/90"
+          >
+            삭제
+          </button>
         </div>
       </div>
 
@@ -265,8 +344,6 @@ export default function CareerResultPage() {
               </span>
             )}
           </div>
-
-          {/* 채팅 메시지 */}
           <div className="card p-3 space-y-3 max-h-[300px] overflow-y-auto mb-3">
             {chatMessages.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-4">
@@ -294,8 +371,6 @@ export default function CareerResultPage() {
             )}
             <div ref={chatBottomRef} />
           </div>
-
-          {/* 채팅 입력 */}
           <div className="flex gap-2">
             <input
               type="text"
@@ -317,7 +392,6 @@ export default function CareerResultPage() {
         </section>
       )}
 
-      {/* 면책 문구 */}
       <p className="text-[11px] text-gray-400 text-center leading-relaxed bg-gray-50 p-3 rounded-lg">
         본 정보는 AI가 제공하는 참고용 데이터이며, 실제 입시 결과와 다를 수 있습니다.
         정확한 정보는 각 대학 입학처를 확인하세요.
