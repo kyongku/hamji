@@ -250,9 +250,17 @@ export default function PostDetailPage() {
               {liked ? "❤️" : "🤍"} {post.like_count}
             </button>
             {isAuthor && (
-              <button onClick={handleDelete} className="btn-ghost text-xs text-red-400">
-                삭제
-              </button>
+              <>
+                <button
+                  onClick={() => router.push(`/board/write?edit=${post.id}`)}
+                  className="btn-ghost text-xs text-blue-400"
+                >
+                  수정
+                </button>
+                <button onClick={handleDelete} className="btn-ghost text-xs text-red-400">
+                  삭제
+                </button>
+              </>
             )}
             {!isAuthor && (
               <button
