@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { useAppStore } from "@/lib/store";
+import { uploadPostImages } from "@/lib/uploadPostImages";
 import type { PostCategory } from "@/types";
 import { CATEGORY_LABELS } from "@/types";
 
@@ -22,34 +23,88 @@ export default function WritePage() {
   const [eventDate, setEventDate] = useState("");
   const [eventTitle, setEventTitle] = useState("");
 
+  // 이미지 첨부
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
+
+    // 4장 제한
+    const merged = [...imageFiles, ...files].slice(0, 4)
+    setImageFiles(merged)
+
+    // 미리보기 URL 생성
+    const previews = merged.map((f) => URL.createObjectURL(f))
+    setImagePreviews(previews)
+
+    // input 초기화 (같은 파일 재선택 가능하도록)
+    e.target.value = ''
+  }
+
+  function handleImageRemove(index: number) {
+    const newFiles = imageFiles.filter((_, i) => i !== index)
+    const newPreviews = imagePreviews.filter((_, i) => i !== index)
+    setImageFiles(newFiles)
+    setImagePreviews(newPreviews)
+  }
+
   async function handleSubmit() {
     if (!user?.school_id) return;
     if (!title.trim()) return setError("제목을 입력해 주세요.");
     if (!content.trim()) return setError("내용을 입력해 주세요.");
     if (title.length > 100) return setError("제목은 100자 이내로 입력해 주세요.");
-    if (attachEvent && (!eventDate || !eventTitle.trim())) return setError("일정 날짜와 제목을 입력해 주세요.");
+    if (attachEvent && (!eventDate || !eventTitle.trim()))
+      return setError("일정 날짜와 제목을 입력해 주세요.");
 
     setSubmitting(true);
     setError("");
 
     const supabase = createClient();
 
-    const { error: insertError } = await supabase.from("posts").insert({
-      user_id: user.id,
-      school_id: user.school_id,
-      category,
-      title: title.trim(),
-      content: content.trim(),
-      is_anonymous: isAnonymous,
-      // 캘린더 첨부 데이터 - posts 테이블에 event_date, event_title 컬럼 필요
-      event_date: attachEvent ? eventDate : null,
-      event_title: attachEvent ? eventTitle.trim() : null,
-    });
+    // 1. 게시글 먼저 생성
+    const { data: post, error: insertError } = await supabase
+      .from("posts")
+      .insert({
+        user_id: user.id,
+        school_id: user.school_id,
+        category,
+        title: title.trim(),
+        content: content.trim(),
+        is_anonymous: isAnonymous,
+        event_date: attachEvent ? eventDate : null,
+        event_title: attachEvent ? eventTitle.trim() : null,
+      })
+      .select("id")
+      .single();
 
-    if (insertError) {
-      setError("게시글 등록에 실패했습니다: " + insertError.message);
+    if (insertError || !post) {
+      setError("게시글 등록에 실패했습니다: " + insertError?.message);
       setSubmitting(false);
       return;
+    }
+
+    // 2. 이미지 업로드
+    if (imageFiles.length > 0) {
+      const imageData = await uploadPostImages(post.id, imageFiles)
+
+      if (imageData.length > 0) {
+        const { error: imgError } = await supabase
+          .from("post_images")
+          .insert(
+            imageData.map(({ url, order_index }) => ({
+              post_id: post.id,
+              url,
+              order_index,
+            }))
+          )
+
+        if (imgError) {
+          console.error("[WritePage] 이미지 저장 실패:", imgError.message)
+          // 이미지 실패해도 게시글은 유지
+        }
+      }
     }
 
     router.push("/board");
@@ -110,6 +165,48 @@ export default function WritePage() {
           rows={10}
           className="input resize-none leading-relaxed"
         />
+      </div>
+
+      {/* 이미지 첨부 */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-gray-500 block">
+          사진 첨부 ({imageFiles.length}/4)
+        </label>
+
+        {/* 미리보기 */}
+        {imagePreviews.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {imagePreviews.map((src, i) => (
+              <div key={i} className="relative w-20 h-20">
+                <img
+                  src={src}
+                  alt={`첨부 이미지 ${i + 1}`}
+                  className="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                />
+                <button
+                  onClick={() => handleImageRemove(i)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-700 text-white rounded-full text-xs flex items-center justify-center"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 추가 버튼 */}
+        {imageFiles.length < 4 && (
+          <label className="flex items-center gap-2 w-fit cursor-pointer text-xs text-gray-500 border border-dashed border-gray-300 rounded-lg px-3 py-2 hover:border-gray-400 transition-colors">
+            <span>+ 사진 추가</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleImageChange}
+            />
+          </label>
+        )}
       </div>
 
       {/* 캘린더 일정 첨부 */}
