@@ -3,6 +3,10 @@
  * AVIF 우선 시도, 브라우저 미지원 시 WebP 폴백
  */
 export async function compressImage(file: File): Promise<File> {
+  // 원본이 200KB 이하면 압축 없이 그대로 반환
+  if (file.size <= 200 * 1024) {
+    return file
+  }
   return new Promise((resolve, reject) => {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
