@@ -263,6 +263,10 @@ function ProfileContent() {
           <div className="flex items-center gap-3"><span className="text-lg">📝</span><span className="text-sm font-medium text-gray-700">수행평가</span></div>
           <span className="text-gray-300">→</span>
         </Link>
+        <Link href="/profile/posts" className="card px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3"><span className="text-lg">📝</span><span className="text-sm font-medium text-gray-700">내가 쓴 글</span></div>
+          <span className="text-gray-300">→</span>
+        </Link>
       </div>
 
       <details className="card overflow-hidden">
