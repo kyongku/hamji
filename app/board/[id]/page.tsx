@@ -30,7 +30,7 @@ export default function PostDetailPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("posts")
-      .select("*, user:users(nickname)")
+      .select("*, user:users(nickname), post_images(url, order_index)")
       .eq("id", id)
       .single();
     if (data) setPost(data);
@@ -185,6 +185,22 @@ export default function PostDetailPage() {
         <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed mb-4">
           {post.content}
         </p>
+
+        {/* 첨부 이미지 */}
+        {post.post_images && post.post_images.length > 0 && (
+          <div className="flex flex-col gap-2 mt-3">
+            {[...post.post_images]
+              .sort((a, b) => a.order_index - b.order_index)
+              .map((img, i) => (
+                <img
+                  key={i}
+                  src={img.url}
+                  alt={`첨부 이미지 ${i + 1}`}
+                  className="w-full rounded-xl object-cover"
+                />
+              ))}
+          </div>
+        )}
 
         {/* 캘린더 일정 첨부 */}
         {post.event_date && post.event_title && (
