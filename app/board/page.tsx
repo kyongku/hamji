@@ -61,7 +61,7 @@ export default function BoardPage() {
 
   useEffect(() => {
     loadPosts();
-  }, [loadPosts]);
+  }, []);
 
   return (
     <div className="space-y-4">
