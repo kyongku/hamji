@@ -28,7 +28,7 @@ export default function RootLayout({
       <body className="min-h-dvh">
         <AuthProvider>
           <Header />
-          <main className="max-w-lg mx-auto px-4 py-4">
+          <main className="max-w-lg mx-auto px-4 py-4 pb-24">
             {children}
           </main>
           <BottomNav />
