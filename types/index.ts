@@ -1,7 +1,6 @@
 // ============================================================
 // 함지고 — 타입 정의
 // ============================================================
-
 export type PostCategory = "free" | "question" | "assessment" | "counseling";
 export type ReportReason = "profanity" | "spam" | "inappropriate" | "other";
 export type UserRole = "user" | "moderator" | "admin";
@@ -46,6 +45,7 @@ export interface Post {
   created_at: string;
   // joined
   user?: Pick<User, "nickname">;
+  post_images?: { url: string; order_index: number }[];
 }
 
 export interface Comment {
@@ -99,11 +99,11 @@ export interface Schedule {
   user_id: string;
   title: string;
   category: ScheduleCategory;
-  start_time: string; // HH:mm:ss
+  start_time: string;
   end_time: string;
   start_date: string;
   end_date: string | null;
-  recurrence: { days: number[] } | null; // 0=일, 1=월, ..., 6=토
+  recurrence: { days: number[] } | null;
   memo: string | null;
   is_public: boolean;
   is_dday: boolean;
@@ -126,7 +126,7 @@ export interface CareerResult {
   id: string;
   user_id: string;
   test_result: {
-    scores: Record<string, number>; // R, I, A, S, E, C
+    scores: Record<string, number>;
     top_types: string[];
   };
   ai_recommendation: {
@@ -137,7 +137,6 @@ export interface CareerResult {
   created_at: string;
 }
 
-// 카테고리 라벨
 export const CATEGORY_LABELS: Record<PostCategory, string> = {
   free: "자유",
   question: "질문",
