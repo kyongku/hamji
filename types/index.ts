@@ -137,6 +137,15 @@ export interface CareerResult {
   created_at: string;
 }
 
+export interface AiChatMessage {
+  id: string;
+  career_result_id: string;
+  user_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
 export const CATEGORY_LABELS: Record<PostCategory, string> = {
   free: "자유",
   question: "질문",

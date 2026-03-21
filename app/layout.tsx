@@ -4,6 +4,7 @@ import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 import Header from "@/components/Header";
 import AuthProvider from "@/components/AuthProvider";
+import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: { default: "Hammunity", template: "%s | Hammunity" },
@@ -26,6 +27,7 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body className="min-h-dvh">
+        <Providers>
         <AuthProvider>
           <Header />
           <main className="max-w-lg mx-auto px-4 py-4 pb-24">
@@ -33,6 +35,7 @@ export default function RootLayout({
           </main>
           <BottomNav />
         </AuthProvider>
+        </Providers>
         <Script
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8673007010222998"
           crossOrigin="anonymous"

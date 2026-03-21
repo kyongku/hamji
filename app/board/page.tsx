@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase-browser";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/lib/store";
 import PostCard from "@/components/PostCard";
-import type { Post, PostCategory } from "@/types";
+import type { PostCategory } from "@/types";
 import { CATEGORY_LABELS } from "@/types";
+import { fetchPostsPage } from "@/lib/api/posts";
+import { queryKeys } from "@/lib/api/queryKeys";
 
 const CATEGORIES: (PostCategory | "all")[] = ["all", "free", "question", "assessment", "counseling"];
 const SORT_OPTIONS = [
@@ -17,51 +19,56 @@ const SORT_OPTIONS = [
 
 export default function BoardPage() {
   const user = useAppStore((s) => s.user);
-  const [posts, setPosts] = useState<Post[]>([]);
   const [category, setCategory] = useState<PostCategory | "all">("all");
   const [sort, setSort] = useState("latest");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const loadPosts = useCallback(async () => {
-    if (!user?.school_id) return;
-    setLoading(true);
-    const supabase = createClient();
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: queryKeys.posts.list({
+      schoolId: user?.school_id ?? "",
+      category,
+      sort: sort as "latest" | "popular" | "comments",
+      search: searchQuery,
+    }),
+    queryFn: ({ pageParam }) =>
+      fetchPostsPage({
+        pageParam: pageParam as number,
+        schoolId: user!.school_id,
+        category,
+        sort: sort as "latest" | "popular" | "comments",
+        search: searchQuery,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: !!user?.school_id,
+  });
 
-    let query = supabase
-      .from("posts")
-      .select("*, user:users(nickname)")
-      .eq("school_id", user.school_id)
-      .is("deleted_at", null)
-      .eq("is_hidden", false);
+  const posts = data?.pages.flatMap((page) => page.posts) ?? [];
+  const loading = isFetching && !isFetchingNextPage;
 
-    if (category !== "all") {
-      query = query.eq("category", category);
-    }
-
-    if (search.trim()) {
-      query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
-    }
-
-    switch (sort) {
-      case "popular":
-        query = query.order("like_count", { ascending: false });
-        break;
-      case "comments":
-        query = query.order("comment_count", { ascending: false });
-        break;
-      default:
-        query = query.order("created_at", { ascending: false });
-    }
-
-    const { data } = await query.limit(20);
-    if (data) setPosts(data);
-    setLoading(false);
-  }, [user, category, sort, search]);
-
+  // Intersection Observer: sentinel이 보이면 다음 페이지 로드
   useEffect(() => {
-    loadPosts();
-  }, []);
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { rootMargin: "120px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <div className="space-y-4">
@@ -72,11 +79,22 @@ export default function BoardPage() {
           placeholder="제목, 내용으로 검색"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && loadPosts()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") setSearchQuery(search);
+          }}
           className="input pl-9"
         />
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        <svg
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
       </div>
 
@@ -137,6 +155,19 @@ export default function BoardPage() {
             <PostCard key={post.id} post={post} />
           ))}
         </div>
+      )}
+
+      {/* Infinite scroll sentinel */}
+      <div ref={sentinelRef} className="h-1" />
+
+      {isFetchingNextPage && (
+        <div className="flex justify-center py-4">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
+      {!hasNextPage && posts.length > 0 && !loading && (
+        <p className="text-center text-xs text-gray-400 py-4">모든 게시글을 불러왔습니다</p>
       )}
     </div>
   );

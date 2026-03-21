@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { useAppStore } from "@/lib/store";
-import type { CareerResult } from "@/types";
+import type { AiChatMessage, CareerResult } from "@/types";
 
 const TYPE_LABELS: Record<string, string> = {
   R: "현실형", I: "탐구형", A: "예술형", S: "사회형", E: "기업형", C: "관습형",
@@ -38,6 +38,15 @@ export default function CareerResultPage() {
   }, [user]);
 
   useEffect(() => {
+    if (!user || !selectedResult) {
+      setChatMessages([]);
+      return;
+    }
+
+    loadChatHistory(selectedResult.id);
+  }, [user, selectedResult?.id]);
+
+  useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
@@ -68,9 +77,33 @@ export default function CareerResultPage() {
     setRemainingCount(2 - (data?.count ?? 0));
   }
 
+  async function loadChatHistory(resultId: string) {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("ai_chat_history")
+      .select("id, career_result_id, user_id, role, content, created_at")
+      .eq("user_id", user!.id)
+      .eq("career_result_id", resultId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Failed to load AI chat history:", error);
+      setChatMessages([]);
+      return;
+    }
+
+    setChatMessages(
+      (data ?? []).map((message: AiChatMessage) => ({
+        role: message.role,
+        content: message.content,
+      }))
+    );
+  }
+
   async function handleDelete(resultId: string) {
     if (!confirm("이 결과를 삭제하시겠습니까?")) return;
     const supabase = createClient();
+    await supabase.from("ai_chat_history").delete().eq("career_result_id", resultId);
     const { error } = await supabase
       .from("career_results")
       .delete()
@@ -144,7 +177,7 @@ export default function CareerResultPage() {
   }
 
   async function sendChat() {
-    if (!chatInput.trim() || chatLoading || !selectedResult) return;
+    if (!chatInput.trim() || chatLoading || !selectedResult || !user) return;
     if (remainingCount !== null && remainingCount <= 0) {
       alert("오늘 AI 사용 횟수를 모두 소진했습니다. 내일 다시 이용해 주세요.");
       return;
@@ -173,8 +206,33 @@ export default function CareerResultPage() {
         return;
       }
 
+      const assistantMsg: ChatMessage = { role: "assistant", content: json.message };
+      const updatedMessages = [...newMessages, assistantMsg];
+
       setRemainingCount(json.remainingCount);
-      setChatMessages([...newMessages, { role: "assistant", content: json.message }]);
+      setChatMessages(updatedMessages);
+
+      const supabase = createClient();
+      const { error: saveError } = await supabase
+        .from("ai_chat_history")
+        .insert([
+          {
+            career_result_id: selectedResult.id,
+            user_id: user.id,
+            role: userMsg.role,
+            content: userMsg.content,
+          },
+          {
+            career_result_id: selectedResult.id,
+            user_id: user.id,
+            role: assistantMsg.role,
+            content: assistantMsg.content,
+          },
+        ]);
+
+      if (saveError) {
+        console.error("Failed to save AI chat history:", saveError);
+      }
     } catch {
       setChatMessages([...newMessages, { role: "assistant", content: "오류가 발생했습니다. 다시 시도해 주세요." }]);
     }
@@ -224,7 +282,6 @@ export default function CareerResultPage() {
                   <button
                     onClick={() => {
                       setSelectedResult(r);
-                      setChatMessages([]);
                       setShowHistory(false);
                     }}
                     className="text-left flex-1"
