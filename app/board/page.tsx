@@ -44,7 +44,7 @@ export default function BoardPage() {
     queryFn: ({ pageParam }) =>
       fetchPostsPage({
         pageParam: pageParam as number,
-        schoolId: user!.school_id,
+        schoolId: user!.school_id!,
         category,
         sort: sort as "latest" | "popular" | "comments",
         search: searchQuery,
