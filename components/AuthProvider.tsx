@@ -7,6 +7,7 @@ import { useAppStore } from "@/lib/store";
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const setUser = useAppStore((s) => s.setUser);
   const setSchool = useAppStore((s) => s.setSchool);
+  const setAuthReady = useAppStore((s) => s.setAuthReady);
   const reset = useAppStore((s) => s.reset);
 
   useEffect(() => {
@@ -14,31 +15,38 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
     // 초기 세션 로드
     async function loadSession() {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) {
-        reset();
-        return;
-      }
-
-      // users 테이블에서 프로필 가져오기
-      const { data: profile } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", authUser.id)
-        .single();
-
-      if (profile) {
-        setUser(profile);
-
-        // 학교 정보 로드
-        if (profile.school_id) {
-          const { data: school } = await supabase
-            .from("schools")
-            .select("*")
-            .eq("id", profile.school_id)
-            .single();
-          if (school) setSchool(school);
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (!authUser) {
+          reset();
+          return;
         }
+
+        // users 테이블에서 프로필 가져오기
+        const { data: profile } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", authUser.id)
+          .single();
+
+        if (profile) {
+          setUser(profile);
+
+          // 학교 정보 로드
+          if (profile.school_id) {
+            const { data: school } = await supabase
+              .from("schools")
+              .select("*")
+              .eq("id", profile.school_id)
+              .single();
+            if (school) setSchool(school);
+          }
+        }
+      } catch (e) {
+        // 네트워크 오류 등 예외 발생 시 비로그인 상태로 fallback
+        reset();
+      } finally {
+        setAuthReady();
       }
     }
 

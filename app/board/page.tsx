@@ -19,11 +19,14 @@ const SORT_OPTIONS = [
 
 export default function BoardPage() {
   const user = useAppStore((s) => s.user);
+  const isAuthReady = useAppStore((s) => s.isAuthReady);
   const [category, setCategory] = useState<PostCategory | "all">("all");
   const [sort, setSort] = useState("latest");
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const hasNextPageRef = useRef(false);
+  const isFetchingNextPageRef = useRef(false);
 
   const {
     data,
@@ -52,15 +55,19 @@ export default function BoardPage() {
   });
 
   const posts = data?.pages.flatMap((page) => page.posts) ?? [];
-  const loading = isFetching && !isFetchingNextPage;
+  const loading = !isAuthReady || (isFetching && !isFetchingNextPage);
 
-  // Intersection Observer: sentinel이 보이면 다음 페이지 로드
+  // ref를 항상 최신 값으로 동기화
+  hasNextPageRef.current = hasNextPage;
+  isFetchingNextPageRef.current = isFetchingNextPage;
+
+  // Intersection Observer: sentinel이 보이면 다음 페이지 로드 (마운트 시 1회만 등록)
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        if (entry.isIntersecting && hasNextPageRef.current && !isFetchingNextPageRef.current) {
           fetchNextPage();
         }
       },
@@ -68,7 +75,7 @@ export default function BoardPage() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [fetchNextPage]);
 
   return (
     <div className="space-y-4">
@@ -133,8 +140,19 @@ export default function BoardPage() {
         </Link>
       </div>
 
+      {/* 비로그인 유도 */}
+      {isAuthReady && !user && (
+        <div className="text-center py-12 text-gray-400">
+          <p className="text-3xl mb-2">🔒</p>
+          <p className="text-sm mb-4">게시판을 보려면 로그인이 필요해요</p>
+          <Link href="/login" className="btn-primary text-sm px-6 py-2">
+            로그인하기
+          </Link>
+        </div>
+      )}
+
       {/* 게시글 목록 */}
-      {loading ? (
+      {(!isAuthReady || (isAuthReady && user)) && loading ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="card p-4 animate-pulse">
@@ -144,18 +162,18 @@ export default function BoardPage() {
             </div>
           ))}
         </div>
-      ) : posts.length === 0 ? (
+      ) : isAuthReady && user && posts.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <p className="text-3xl mb-2">📭</p>
           <p className="text-sm">게시글이 없습니다</p>
         </div>
-      ) : (
+      ) : isAuthReady && user ? (
         <div className="space-y-2">
           {posts.map((post) => (
             <PostCard key={post.id} post={post} />
           ))}
         </div>
-      )}
+      ) : null}
 
       {/* Infinite scroll sentinel */}
       <div ref={sentinelRef} className="h-1" />

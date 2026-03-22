@@ -24,7 +24,18 @@ export interface User {
   role: UserRole;
   is_suspended: boolean;
   suspended_until: string | null;
+  warning_count: number;
   created_at: string;
+}
+
+export interface Report {
+  id: string;
+  reporter_id: string;
+  target_type: "post" | "comment";
+  target_id: string;
+  reason: ReportReason;
+  created_at: string;
+  reporter?: Pick<User, "nickname" | "email">;
 }
 
 export interface Post {

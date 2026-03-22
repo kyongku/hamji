@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { useAppStore } from "@/lib/store";
-import type { Post, Comment } from "@/types";
+import type { Post, Comment, ReportReason } from "@/types";
 import { CATEGORY_LABELS } from "@/types";
 import { timeAgo, categoryColor } from "@/lib/utils";
 
@@ -18,13 +18,28 @@ export default function PostDetailPage() {
   const [isAnonComment, setIsAnonComment] = useState(false);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [liked, setLiked] = useState(false);
+  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set());
+  const [calendarAdded, setCalendarAdded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: "post" | "comment"; id: string } | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadPost();
     loadComments();
     checkLiked();
+    return () => {
+      if (shareCopiedTimer.current) clearTimeout(shareCopiedTimer.current);
+    };
   }, [id]);
+
+  useEffect(() => {
+    if (post?.event_date && post?.event_title && user) {
+      checkCalendarAdded(post.event_title, post.event_date);
+    }
+  }, [post?.event_date, post?.event_title, user]);
 
   async function loadPost() {
     const supabase = createClient();
@@ -48,17 +63,32 @@ export default function PostDetailPage() {
     if (data) setComments(data);
   }
 
+  async function checkCalendarAdded(title: string, date: string) {
+    if (!user) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("schedules")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("title", title)
+      .eq("start_date", date)
+      .maybeSingle();
+    setCalendarAdded(!!data);
+  }
+
   async function checkLiked() {
     if (!user) return;
     const supabase = createClient();
     const { data } = await supabase
       .from("likes")
-      .select("id")
+      .select("target_id, target_type")
       .eq("user_id", user.id)
-      .eq("target_type", "post")
-      .eq("target_id", id)
-      .single();
-    setLiked(!!data);
+      .in("target_type", ["post", "comment"]);
+    if (data) {
+      const postLiked = data.some((l) => l.target_type === "post" && l.target_id === id);
+      setLiked(postLiked);
+      setLikedCommentIds(new Set(data.filter((l) => l.target_type === "comment").map((l) => l.target_id)));
+    }
   }
 
   async function toggleLike() {
@@ -83,6 +113,21 @@ export default function PostDetailPage() {
     setLiked(!liked);
   }
 
+  async function toggleCommentLike(commentId: string) {
+    if (!user) return;
+    const supabase = createClient();
+    const isLiked = likedCommentIds.has(commentId);
+    if (isLiked) {
+      await supabase.from("likes").delete().eq("user_id", user.id).eq("target_type", "comment").eq("target_id", commentId);
+      setLikedCommentIds((prev) => { const next = new Set(prev); next.delete(commentId); return next; });
+      setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, like_count: c.like_count - 1 } : c));
+    } else {
+      await supabase.from("likes").insert({ user_id: user.id, target_type: "comment", target_id: commentId });
+      setLikedCommentIds((prev) => new Set(prev).add(commentId));
+      setComments((prev) => prev.map((c) => c.id === commentId ? { ...c, like_count: c.like_count + 1 } : c));
+    }
+  }
+
   async function submitComment() {
     if (!user || !newComment.trim()) return;
     setSubmitting(true);
@@ -99,24 +144,37 @@ export default function PostDetailPage() {
 
     setNewComment("");
     setReplyTo(null);
+    await Promise.all([loadComments(), loadPost()]);
     setSubmitting(false);
-    loadComments();
-    loadPost(); // comment_count 반영
   }
 
-  async function handleReport(targetType: "post" | "comment", targetId: string) {
+  function handleReport(targetType: "post" | "comment", targetId: string) {
     if (!user) return;
-    const reason = prompt("신고 사유를 선택해 주세요 (욕설/도배/부적절/기타):");
-    if (!reason) return;
+    setReportTarget({ type: targetType, id: targetId });
+  }
+
+  async function submitReport(reason: ReportReason) {
+    if (!user || !reportTarget) return;
     const supabase = createClient();
     await supabase.from("reports").insert({
       reporter_id: user.id,
-      target_type: targetType,
-      target_id: targetId,
-      reason: "other",
-      detail: reason,
+      target_type: reportTarget.type,
+      target_id: reportTarget.id,
+      reason,
     });
-    alert("신고가 접수되었습니다.");
+    setReportTarget(null);
+  }
+
+  async function handleShare() {
+    const url = window.location.href;
+    if (navigator.share) {
+      await navigator.share({ title: post?.title ?? "", text: post?.content.slice(0, 80) ?? "", url });
+    } else {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      if (shareCopiedTimer.current) clearTimeout(shareCopiedTimer.current);
+      shareCopiedTimer.current = setTimeout(() => setShareCopied(false), 2000);
+    }
   }
 
   async function handleDelete() {
@@ -146,8 +204,7 @@ export default function PostDetailPage() {
       .eq("id", commentId)
       .eq("user_id", user!.id); // 본인 댓글만
 
-    loadComments();
-    loadPost(); // comment_count 반영
+    await Promise.all([loadComments(), loadPost()]);
   }
 
   if (!post) {
@@ -173,6 +230,58 @@ export default function PostDetailPage() {
 
   return (
     <div className="space-y-4 animate-fade-in pb-24">
+      {/* 신고 모달 */}
+      {reportTarget && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setReportTarget(null)}>
+          <div className="w-full max-w-lg bg-white rounded-t-2xl p-5 pb-8" onClick={(e) => e.stopPropagation()}>
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
+            <h3 className="text-sm font-bold text-gray-800 mb-3">신고 사유를 선택해 주세요</h3>
+            <p className="text-[11px] text-red-400 mb-3 leading-relaxed">
+              ⚠️ 허위 신고 또는 악의적 신고는 운영 정책에 따라 신고자에게 경고 조치가 부여될 수 있습니다.
+            </p>
+            <div className="space-y-2">
+              {([
+                { reason: "profanity", label: "욕설 / 비방" },
+                { reason: "spam", label: "도배" },
+                { reason: "inappropriate", label: "부적절한 내용" },
+                { reason: "other", label: "기타" },
+              ] as { reason: ReportReason; label: string }[]).map(({ reason, label }) => (
+                <button
+                  key={reason}
+                  onClick={() => submitReport(reason)}
+                  className="w-full text-left px-4 py-3 rounded-xl bg-gray-50 hover:bg-gray-100 text-sm text-gray-700 transition-colors"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setReportTarget(null)} className="mt-3 w-full text-center text-xs text-gray-400 py-2">
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 이미지 라이트박스 */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white text-2xl leading-none"
+            onClick={() => setLightboxImage(null)}
+          >
+            ✕
+          </button>
+          <img
+            src={lightboxImage}
+            alt="이미지 확대"
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
       {/* 게시글 */}
       <article className="card p-4">
         <div className="flex items-center justify-between mb-3">
@@ -196,7 +305,8 @@ export default function PostDetailPage() {
                   key={i}
                   src={img.url}
                   alt={`첨부 이미지 ${i + 1}`}
-                  className="w-full rounded-xl object-cover"
+                  className="w-full rounded-xl object-cover cursor-pointer active:opacity-80"
+                  onClick={() => setLightboxImage(img.url)}
                 />
               ))}
           </div>
@@ -213,8 +323,9 @@ export default function PostDetailPage() {
               </div>
             </div>
             <button
+              disabled={calendarAdded}
               onClick={async () => {
-                if (!user) return;
+                if (!user || calendarAdded) return;
                 const supabase = createClient();
                 await supabase.from("schedules").insert({
                   user_id: user.id,
@@ -229,11 +340,15 @@ export default function PostDetailPage() {
                   is_public: false,
                   is_dday: false,
                 });
-                alert("내 캘린더에 추가되었습니다");
+                setCalendarAdded(true);
               }}
-              className="text-xs bg-blue-500 text-white px-3 py-1.5 rounded-lg"
+              className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                calendarAdded
+                  ? "bg-gray-200 text-gray-400 cursor-default"
+                  : "bg-blue-500 text-white hover:bg-blue-600"
+              }`}
             >
-              + 내 캘린더에 추가
+              {calendarAdded ? "✓ 추가됨" : "+ 내 캘린더에 추가"}
             </button>
           </div>
         )}
@@ -248,6 +363,12 @@ export default function PostDetailPage() {
               }`}
             >
               {liked ? "❤️" : "🤍"} {post.like_count}
+            </button>
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-gray-50 text-gray-500 hover:bg-gray-100 transition-colors"
+            >
+              {shareCopied ? "✓ 복사됨" : "공유"}
             </button>
             {isAuthor && (
               <>
@@ -288,6 +409,8 @@ export default function PostDetailPage() {
                 onReply={() => setReplyTo(comment.id)}
                 onReport={() => handleReport("comment", comment.id)}
                 onDelete={() => handleDeleteComment(comment.id)}
+                onToggleLike={() => toggleCommentLike(comment.id)}
+                liked={likedCommentIds.has(comment.id)}
                 currentUserId={user?.id}
               />
               {repliesMap.get(comment.id)?.map((reply) => (
@@ -298,6 +421,8 @@ export default function PostDetailPage() {
                     onReply={() => setReplyTo(comment.id)}
                     onReport={() => handleReport("comment", reply.id)}
                     onDelete={() => handleDeleteComment(reply.id)}
+                    onToggleLike={() => toggleCommentLike(reply.id)}
+                    liked={likedCommentIds.has(reply.id)}
                     currentUserId={user?.id}
                     isReply
                   />
@@ -353,6 +478,8 @@ function CommentItem({
   onReply,
   onReport,
   onDelete,
+  onToggleLike,
+  liked,
   currentUserId,
   isReply = false,
 }: {
@@ -361,6 +488,8 @@ function CommentItem({
   onReply: () => void;
   onReport: () => void;
   onDelete: () => void;
+  onToggleLike: () => void;
+  liked: boolean;
   currentUserId?: string;
   isReply?: boolean;
 }) {
@@ -385,6 +514,12 @@ function CommentItem({
       </div>
       <p className="text-sm text-gray-700 leading-relaxed">{comment.content}</p>
       <div className="flex items-center gap-3 mt-1.5">
+        <button
+          onClick={onToggleLike}
+          className={`flex items-center gap-1 text-[11px] transition-colors ${liked ? "text-red-400" : "text-gray-400 hover:text-gray-600"}`}
+        >
+          {liked ? "❤️" : "🤍"} {comment.like_count}
+        </button>
         {!isReply && (
           <button onClick={onReply} className="text-[11px] text-gray-400 hover:text-gray-600">
             답글
